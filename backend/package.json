@@ -1,0 +1,39 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Retail POS backend — Node.js + Express + PostgreSQL",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "nodemon --watch src --ext ts --exec \"node --require ts-node/register src/index.ts\"",
+    "start": "node dist/index.js",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test:db": "node --require ts-node/register src/scripts/test-db.ts",
+    "test:auth": "node --require ts-node/register src/scripts/test-auth.ts",
+    "test:users":     "node --require ts-node/register src/scripts/test-users.ts",
+    "test:catalog":   "node --require ts-node/register src/scripts/test-catalog.ts",
+    "test:inventory": "node --require ts-node/register src/scripts/test-inventory.ts",
+    "test:sales":     "node --require ts-node/register src/scripts/test-sales.ts",
+    "test:sales-history": "node --require ts-node/register src/scripts/test-sales-history.ts",
+    "test:reports": "node --require ts-node/register src/scripts/test-reports.ts"
+  },
+  "dependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.12.0"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.9",
+    "@types/pg": "^8.11.6",
+    "nodemon": "^3.1.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.3"
+  }
+}

@@ -1,0 +1,25 @@
+# ============================================================
+# Retail POS — Root .gitignore
+# ============================================================
+
+# Node
+node_modules/
+*.log
+
+# Environment — NEVER commit real credentials
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+dist/
+dist-ssr/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/

@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Print styles ─────────────────────────────────────────────────────────── */
+@media print {
+  /* Hide everything on screen */
+  body > * {
+    display: none !important;
+  }
+
+  /* Show only the receipt */
+  #receipt-content,
+  .print-only {
+    display: block !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 12px;
+  }
+
+  /* Thermal receipt width approximation */
+  @page {
+    margin: 5mm;
+    size: 80mm auto;
+  }
+}
+
+/* Keep print-only elements hidden on screen */
+.print-only {
+  display: none;
+}
