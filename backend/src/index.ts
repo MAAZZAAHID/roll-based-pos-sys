@@ -60,10 +60,17 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 // ─── Start server ─────────────────────────────────────────────────────────────
-// Bind to 0.0.0.0 so cloud hosting platforms (Render, Railway, Fly.io) can route traffic.
-app.listen(Number(port), '0.0.0.0', () => {
-  console.log(`✅  Backend server running on port ${port}`);
-  console.log(`    Health:  GET  http://localhost:${port}/api/health`);
-  console.log(`    Login:   POST http://localhost:${port}/api/auth/login`);
-  console.log(`    Me:      GET  http://localhost:${port}/api/auth/me`);
-});
+// Bind to 0.0.0.0 so cloud hosting platforms can route traffic.
+// We conditionally start the server to prevent port binding issues in Vercel's
+// Serverless environment, while preserving local 'npm start' functionality.
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  app.listen(Number(port), '0.0.0.0', () => {
+    console.log(`✅  Backend server running on port ${port}`);
+    console.log(`    Health:  GET  http://localhost:${port}/api/health`);
+    console.log(`    Login:   POST http://localhost:${port}/api/auth/login`);
+    console.log(`    Me:      GET  http://localhost:${port}/api/auth/me`);
+  });
+}
+
+// Export the Express app instance for Vercel Serverless Functions
+export default app;
