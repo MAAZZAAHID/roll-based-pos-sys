@@ -1,6 +1,4 @@
-# Environment secrets
 .env
 .env.*
 
-# Local Vercel files
 .vercel/
