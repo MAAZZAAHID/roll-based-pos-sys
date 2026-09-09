@@ -1,10 +1,6 @@
-# The retail-pos-front project is deployed from the frontend root.
-# Keep backend credentials and unrelated repository content out of its upload.
-backend/
-database/
-api/
-*.md
-package.json
-/vercel.json
+# Environment secrets
 .env
 .env.*
+
+# Local Vercel files
+.vercel/
