@@ -1,6 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 
 interface User {
@@ -27,8 +25,6 @@ function roleBadge(role: string) {
 }
 
 export default function UsersPage() {
-  const { user: me, logout } = useAuth();
-  const navigate = useNavigate();
 
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -196,44 +192,25 @@ export default function UsersPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
-      {/* Header */}
-      <header className="bg-gray-900 border-b border-gray-700 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <h1 className="text-xl font-bold text-white tracking-wide">User Management</h1>
-          <nav className="hidden md:flex gap-4">
-            <button onClick={() => navigate('/dashboard')} className="text-sm font-medium text-gray-400 hover:text-white transition">Dashboard</button>
-            <button onClick={() => navigate('/pos')} className="text-sm font-medium text-gray-400 hover:text-white transition">POS</button>
-            <button onClick={() => navigate('/reports')} className="text-sm font-medium text-gray-400 hover:text-white transition">Reports</button>
-            <button onClick={() => navigate('/sales')} className="text-sm font-medium text-gray-400 hover:text-white transition">Sales History</button>
-          </nav>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400">{me?.fullName}
-            <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-purple-600/30 text-purple-300">{me?.role}</span>
-          </span>
-          <button onClick={() => { logout(); navigate('/login'); }} className="text-sm text-gray-400 hover:text-white transition">Sign out</button>
-        </div>
-      </header>
-
-      <div className="flex-1 p-6 max-w-6xl mx-auto w-full space-y-5">
+      <main className="app-page flex-1 space-y-5">
         {/* Flash messages */}
-        {success && <div className="p-3 bg-green-900/40 border border-green-700 text-green-300 rounded-xl text-sm">{success}</div>}
-        {error && <div className="p-3 bg-red-900/40 border border-red-700 text-red-300 rounded-xl text-sm">{error}</div>}
+        {success && <div className="alert alert-success">{success}</div>}
+        {error && <div className="alert alert-error">{error}</div>}
 
         {/* Toolbar */}
-        <div className="flex justify-between items-center">
-          <p className="text-sm text-gray-400">{users.length} user{users.length !== 1 ? 's' : ''}</p>
+        <div className="page-header">
+          <div><p className="page-kicker">Administration</p><h1 className="page-title">User management</h1><p className="page-subtitle">Manage staff access and account status.</p></div>
           <button
             onClick={openAdd}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition"
+            className="btn-primary"
           >
-            + Add User
+            <span aria-hidden="true">+</span> Add user
           </button>
         </div>
 
         {/* Users Table */}
-        <div className="bg-gray-900 border border-gray-700 rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="panel overflow-x-auto">
+          <table className="data-table w-full text-sm">
             <thead className="bg-gray-800/50 text-gray-400 text-xs uppercase">
               <tr>
                 <th className="px-6 py-3 text-left font-medium">Username</th>
@@ -248,7 +225,7 @@ export default function UsersPage() {
               {loading ? (
                 <tr><td colSpan={6} className="px-6 py-10 text-center text-gray-500">Loading users...</td></tr>
               ) : users.length === 0 ? (
-                <tr><td colSpan={6} className="px-6 py-10 text-center text-gray-500">No users found.</td></tr>
+                <tr><td colSpan={6} className="empty-state"><div className="empty-state-title">No users found</div><div className="empty-state-copy">Add a staff account to manage access.</div></td></tr>
               ) : (
                 users.map(u => (
                   <tr key={u.id} className={`hover:bg-gray-800/40 transition ${!u.is_active ? 'opacity-50' : ''}`}>
@@ -295,7 +272,7 @@ export default function UsersPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </main>
 
       {/* ─── Modals ─── */}
       {modalMode && (

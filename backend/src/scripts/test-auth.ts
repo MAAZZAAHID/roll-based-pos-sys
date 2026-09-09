@@ -7,6 +7,8 @@
  * Or: npm run test:auth  (see package.json)
  */
 
+import { requiredTestCredential, testOwnerUsername } from './test-config';
+
 const BASE = `http://localhost:${process.env.PORT || 3001}/api`;
 
 async function post(path: string, body: object, token?: string) {
@@ -37,6 +39,7 @@ function assert(condition: boolean, label: string) {
 }
 
 async function main() {
+  const ownerPassword = requiredTestCredential('TEST_OWNER_PASSWORD');
   console.log('\n🔐  Auth smoke-tests\n');
 
   // ── 1. Login with wrong password ─────────────────────────────────────────
@@ -45,8 +48,8 @@ async function main() {
   assert(bad.status === 401, `Expected 401 — got ${bad.status}`);
 
   // ── 2. Login as owner ─────────────────────────────────────────────────────
-  console.log('2. Login as owner (Admin@1234)');
-  const ownerLogin = await post('/auth/login', { username: 'owner', password: 'Admin@1234' });
+  console.log('2. Login as owner');
+  const ownerLogin = await post('/auth/login', { username: testOwnerUsername, password: ownerPassword });
   assert(ownerLogin.status === 200, `Expected 200 — got ${ownerLogin.status}`);
   const ownerToken: string = (ownerLogin.body as { token: string }).token;
   assert(typeof ownerToken === 'string' && ownerToken.length > 0, 'Received JWT token');
@@ -56,7 +59,7 @@ async function main() {
   console.log('3. GET /auth/me with valid token');
   const me = await get('/auth/me', ownerToken);
   assert(me.status === 200, `Expected 200 — got ${me.status}`);
-  assert((me.body as { username: string }).username === 'owner', 'Username is owner');
+  assert((me.body as { username: string }).username === testOwnerUsername, 'Username is owner');
 
   // ── 4. GET /me without token ─────────────────────────────────────────────
   console.log('4. GET /auth/me without token (should be 401)');
@@ -77,4 +80,3 @@ main().catch((err) => {
 });
 
 export {};
-

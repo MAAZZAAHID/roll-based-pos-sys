@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const BASE = '/api';
 
 function getToken(): string | null {
   return localStorage.getItem('pos_token');
@@ -7,11 +7,13 @@ function getToken(): string | null {
 export async function apiRequest<T = unknown>(
   method: string,
   path: string,
-  body?: object
+  body?: object,
+  extraHeaders?: Record<string, string>
 ): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (extraHeaders) Object.assign(headers, extraHeaders);
 
   const opts: RequestInit = { method, headers };
   if (body) opts.body = JSON.stringify(body);
@@ -33,7 +35,7 @@ export async function apiRequest<T = unknown>(
 
 export const api = {
   get:    <T>(path: string)              => apiRequest<T>('GET',    path),
-  post:   <T>(path: string, body: object) => apiRequest<T>('POST',   path, body),
+  post:   <T>(path: string, body: object, headers?: Record<string, string>) => apiRequest<T>('POST', path, body, headers),
   put:    <T>(path: string, body: object) => apiRequest<T>('PUT',    path, body),
   delete: <T>(path: string)              => apiRequest<T>('DELETE', path),
 };

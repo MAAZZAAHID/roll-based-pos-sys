@@ -2,6 +2,8 @@
  * Smoke-tests for Sales Transaction (Step 9).
  */
 
+import { requiredTestCredential, testOwnerUsername } from './test-config';
+
 const BASE = `http://localhost:${process.env.PORT || 3001}/api`;
 
 async function req(method: string, path: string, body?: object, token?: string) {
@@ -21,10 +23,11 @@ function assert(condition: boolean, label: string) {
 }
 
 async function main() {
+  const ownerPassword = requiredTestCredential('TEST_OWNER_PASSWORD');
   console.log('\n💳  Sales Checkout smoke-tests\n');
 
   // ── Setup: login as owner ─────────────────────────────────────────────────
-  const ownerLogin = await req('POST', '/auth/login', { username: 'owner', password: 'Admin@1234' });
+  const ownerLogin = await req('POST', '/auth/login', { username: testOwnerUsername, password: ownerPassword });
   assert(ownerLogin.status === 200, 'Owner login');
   const ownerToken: string = ownerLogin.body.token;
 

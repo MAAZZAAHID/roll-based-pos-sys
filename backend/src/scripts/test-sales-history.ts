@@ -2,6 +2,8 @@
  * Smoke-tests for Sales History (Step 11).
  */
 
+import { requiredTestCredential, testOwnerUsername } from './test-config';
+
 const BASE = `http://localhost:${process.env.PORT || 3001}/api`;
 
 async function req(method: string, path: string, body?: object, token?: string) {
@@ -21,10 +23,12 @@ function assert(condition: boolean, label: string) {
 }
 
 async function main() {
+  const ownerPassword = requiredTestCredential('TEST_OWNER_PASSWORD');
+  const testPassword = requiredTestCredential('TEST_PASSWORD');
   console.log('\n📜  Sales History smoke-tests\n');
 
   // ── Setup: Logins ─────────────────────────────────────────────────────────
-  const ownerLogin = await req('POST', '/auth/login', { username: 'owner', password: 'Admin@1234' });
+  const ownerLogin = await req('POST', '/auth/login', { username: testOwnerUsername, password: ownerPassword });
   const ownerToken: string = ownerLogin.body.token;
   
   let managerToken = '';
@@ -33,21 +37,21 @@ async function main() {
     const mgrRes = await req('POST', '/users', {
       username: `manager_${Date.now()}`,
       email: `manager_${Date.now()}@test.com`,
-      password: 'Password@123',
+      password: testPassword,
       full_name: 'Test Manager',
       role: 'manager'
     }, ownerToken);
-    const mgrLogin = await req('POST', '/auth/login', { username: mgrRes.body.username, password: 'Password@123' });
+    const mgrLogin = await req('POST', '/auth/login', { username: mgrRes.body.username, password: testPassword });
     managerToken = mgrLogin.body.token;
 
     const c1Res = await req('POST', '/users', {
       username: `cashier_${Date.now()}`,
       email: `cashier_${Date.now()}@test.com`,
-      password: 'Password@123',
+      password: testPassword,
       full_name: 'Test Cashier 1',
       role: 'cashier'
     }, ownerToken);
-    const c1Login = await req('POST', '/auth/login', { username: c1Res.body.username, password: 'Password@123' });
+    const c1Login = await req('POST', '/auth/login', { username: c1Res.body.username, password: testPassword });
     cashierToken = c1Login.body.token;
   } catch(e) {
     console.error("Failed to setup manager/cashier 1", e);
@@ -60,12 +64,12 @@ async function main() {
     c2Res = await req('POST', '/users', {
       username: `cashier2_${Date.now()}`,
       email: `cashier2_${Date.now()}@test.com`,
-      password: 'Password@123',
+      password: testPassword,
       full_name: 'Test Cashier 2',
       role: 'cashier'
     }, ownerToken);
     
-    const cashier2Login = await req('POST', '/auth/login', { username: c2Res.body.username, password: 'Password@123' });
+  const cashier2Login = await req('POST', '/auth/login', { username: c2Res.body.username, password: testPassword });
     cashier2Token = cashier2Login.body.token;
   } catch (e) {
     console.error("Failed to setup cashier 2", e);

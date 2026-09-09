@@ -1,6 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 
 interface SalesReport {
@@ -34,8 +32,6 @@ function fmt(n: number | string): string {
 }
 
 export default function ReportsPage() {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
 
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -79,30 +75,18 @@ export default function ReportsPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
-      {/* Header */}
-      <header className="bg-gray-900 border-b border-gray-700 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <h1 className="text-xl font-bold text-white tracking-wide">Reports</h1>
-          <nav className="hidden md:flex gap-4">
-            <button onClick={() => navigate('/dashboard')} className="text-sm font-medium text-gray-400 hover:text-white transition">Dashboard</button>
-            <button onClick={() => navigate('/pos')} className="text-sm font-medium text-gray-400 hover:text-white transition">POS</button>
-            <button onClick={() => navigate('/sales')} className="text-sm font-medium text-gray-400 hover:text-white transition">Sales History</button>
-          </nav>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400 capitalize">{user?.fullName}
-            <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-indigo-600/30 text-indigo-300">{user?.role}</span>
-          </span>
-          <button onClick={() => { logout(); navigate('/login'); }} className="text-sm text-gray-400 hover:text-white transition">
-            Sign out
-          </button>
-        </div>
-      </header>
+      <main className="app-page flex-1 space-y-6">
 
-      <div className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6">
+        <div className="page-header">
+          <div>
+            <p className="page-kicker">Analytics</p>
+            <h1 className="page-title">Reports</h1>
+            <p className="page-subtitle">Understand sales performance and inventory risk over time.</p>
+          </div>
+        </div>
         
         {/* Controls */}
-        <div className="bg-gray-900 border border-gray-700 rounded-2xl p-5 flex flex-wrap gap-4 items-end">
+        <div className="form-panel flex flex-wrap items-end gap-4">
           <div>
             <label className="block text-xs text-gray-400 mb-1">From Date</label>
             <input 
@@ -129,17 +113,17 @@ export default function ReportsPage() {
           </button>
         </div>
 
-        {error && <div className="p-4 bg-red-900/40 border border-red-700 text-red-300 rounded-xl">{error}</div>}
+        {error && <div className="alert alert-error">{error}</div>}
         
-        {loading && <div className="text-center py-10 text-gray-500">Loading reports...</div>}
+        {loading && <div className="skeleton-block h-40" />}
 
         {!loading && salesReport && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
             {/* Sales Summary */}
             <div className="space-y-6">
-              <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 shadow-sm">
-                <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Sales Summary</h2>
+              <div className="panel p-6">
+                <h2 className="panel-title mb-4">Sales summary</h2>
                 <div className="space-y-4">
                   <div>
                     <p className="text-sm text-gray-400">Total Sales</p>
@@ -157,8 +141,8 @@ export default function ReportsPage() {
               </div>
 
               {/* Payment Methods */}
-              <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 shadow-sm">
-                <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">By Payment Method</h2>
+              <div className="panel p-6">
+                <h2 className="panel-title mb-4">By payment method</h2>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-gray-300 flex items-center gap-2">
@@ -183,11 +167,11 @@ export default function ReportsPage() {
             </div>
 
             {/* Top Products */}
-            <div className="bg-gray-900 border border-gray-700 rounded-2xl overflow-hidden shadow-sm lg:col-span-2">
-              <div className="px-6 py-4 border-b border-gray-700">
-                <h2 className="text-sm font-bold text-gray-300 uppercase tracking-wider">Top Selling Products</h2>
+            <div className="panel overflow-hidden shadow-sm lg:col-span-2">
+              <div className="panel-header">
+                <h2 className="panel-title">Top selling products</h2>
               </div>
-              <table className="w-full text-sm">
+              <table className="data-table w-full text-sm">
                 <thead className="bg-gray-800/50 text-gray-400 text-xs uppercase">
                   <tr>
                     <th className="px-6 py-3 text-left font-medium">Product</th>
@@ -197,7 +181,7 @@ export default function ReportsPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-800">
                   {topProducts.length === 0 ? (
-                    <tr><td colSpan={3} className="px-6 py-8 text-center text-gray-500">No products sold in this period.</td></tr>
+                    <tr><td colSpan={3} className="empty-state"><div className="empty-state-title">No sales yet</div><div className="empty-state-copy">Top-selling products will appear when transactions are completed.</div></td></tr>
                   ) : (
                     topProducts.map((p, i) => (
                       <tr key={i} className="hover:bg-gray-800/40 transition">
@@ -212,12 +196,12 @@ export default function ReportsPage() {
             </div>
 
             {/* Low Stock Report */}
-            <div className="bg-gray-900 border border-gray-700 rounded-2xl overflow-hidden shadow-sm lg:col-span-3 mt-2">
+            <div className="panel overflow-hidden shadow-sm lg:col-span-3 mt-2">
               <div className="px-6 py-4 border-b border-gray-700 flex justify-between items-center">
                 <h2 className="text-sm font-bold text-gray-300 uppercase tracking-wider">Low Stock & Out of Stock</h2>
                 <span className="text-xs bg-red-900/30 text-red-400 px-3 py-1 rounded-full font-medium">Live Inventory</span>
               </div>
-              <table className="w-full text-sm">
+              <table className="data-table w-full text-sm">
                 <thead className="bg-gray-800/50 text-gray-400 text-xs uppercase">
                   <tr>
                     <th className="px-6 py-3 text-left font-medium">Barcode</th>
@@ -229,7 +213,7 @@ export default function ReportsPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-800">
                   {lowStock.length === 0 ? (
-                    <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">All products are well stocked.</td></tr>
+                    <tr><td colSpan={5} className="empty-state"><div className="empty-state-title">Inventory is healthy</div><div className="empty-state-copy">No products are currently below their stock threshold.</div></td></tr>
                   ) : (
                     lowStock.map(p => (
                       <tr key={p.product_id} className="hover:bg-gray-800/40 transition">
@@ -254,7 +238,7 @@ export default function ReportsPage() {
           </div>
         )}
 
-      </div>
+      </main>
     </div>
   );
 }

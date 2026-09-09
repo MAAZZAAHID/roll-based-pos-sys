@@ -14,4 +14,6 @@
 \i 005_create_inventory.sql
 \i 006_create_sales.sql
 \i 007_create_audit_logs.sql
+\i 008_create_refunds.sql
+\i 009_add_multi_shop_tenancy.sql
 \i seed_001_initial_data.sql

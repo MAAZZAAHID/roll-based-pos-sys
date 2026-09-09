@@ -2,6 +2,8 @@
  * Smoke-test for Catalog (Categories & Products) endpoints.
  */
 
+import { requiredTestCredential, testOwnerUsername } from './test-config';
+
 const BASE = `http://localhost:${process.env.PORT || 3001}/api`;
 
 async function req(method: string, path: string, body?: object, token?: string) {
@@ -31,10 +33,12 @@ function assert(condition: boolean, label: string) {
 }
 
 async function main() {
+  const ownerPassword = requiredTestCredential('TEST_OWNER_PASSWORD');
+  const testPassword = requiredTestCredential('TEST_PASSWORD');
   console.log('\n📦  Catalog (Categories & Products) smoke-tests\n');
 
-  // 1. Login as owner (Admin@1234) to perform operations
-  const ownerLogin = await req('POST', '/auth/login', { username: 'owner', password: 'Admin@1234' });
+  // 1. Login as the isolated test owner to perform operations
+  const ownerLogin = await req('POST', '/auth/login', { username: testOwnerUsername, password: ownerPassword });
   const ownerToken = ownerLogin.body.token;
   assert(ownerLogin.status === 200, 'Owner logged in');
 
@@ -130,13 +134,13 @@ async function main() {
   const cashRes = await req('POST', '/users', {
     username: `cashier_cat_${rand}`,
     email: `cashier_cat_${rand}@test.com`,
-    password: 'cashierpass',
+    password: testPassword,
     full_name: 'Cat Cashier',
     role: 'cashier'
   }, ownerToken);
   assert(cashRes.status === 201, 'Created test cashier');
   
-  const cashLogin = await req('POST', '/auth/login', { username: `cashier_cat_${rand}`, password: 'cashierpass' });
+  const cashLogin = await req('POST', '/auth/login', { username: `cashier_cat_${rand}`, password: testPassword });
   const cashierToken = cashLogin.body.token;
 
   // Cashier CAN read products/categories

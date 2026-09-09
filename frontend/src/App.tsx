@@ -6,6 +6,9 @@ import SalesPage from './pages/SalesPage';
 import DashboardPage from './pages/DashboardPage';
 import ReportsPage from './pages/ReportsPage';
 import UsersPage from './pages/UsersPage';
+import InventoryPage from './pages/InventoryPage';
+import CatalogPage from './pages/CatalogPage';
+import AuthenticatedLayout from './components/AuthenticatedLayout';
 
 // ─── Route Guards ─────────────────────────────────────────────────────────────
 
@@ -34,7 +37,7 @@ function RequireOwner({ children }: { children: React.ReactElement }) {
 function RedirectIfAuthed({ children }: { children: React.ReactElement }) {
   const { user, loading } = useAuth();
   if (loading) return null;
-  return user ? <Navigate to="/pos" replace /> : children;
+  return user ? <Navigate to="/dashboard" replace /> : children;
 }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
@@ -51,31 +54,16 @@ export default function App() {
               <LoginPage />
             </RedirectIfAuthed>
           } />
-          <Route path="/pos" element={
-            <RequireAuth>
-              <POSPage />
-            </RequireAuth>
-          } />
-          <Route path="/sales" element={
-            <RequireAuth>
-              <SalesPage />
-            </RequireAuth>
-          } />
-          <Route path="/dashboard" element={
-            <RequireAuth>
-              <DashboardPage />
-            </RequireAuth>
-          } />
-          <Route path="/reports" element={
-            <RequireAuth>
-              <ReportsPage />
-            </RequireAuth>
-          } />
-          <Route path="/users" element={
-            <RequireOwner>
-              <UsersPage />
-            </RequireOwner>
-          } />
+          <Route element={<RequireAuth><AuthenticatedLayout /></RequireAuth>}>
+            <Route path="/pos" element={<POSPage />} />
+            <Route path="/sales" element={<SalesPage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/inventory" element={<InventoryPage />} />
+            <Route path="/products" element={<CatalogPage kind="products" />} />
+            <Route path="/categories" element={<CatalogPage kind="categories" />} />
+            <Route path="/users" element={<RequireOwner><UsersPage /></RequireOwner>} />
+          </Route>
           {/* Default redirect */}
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

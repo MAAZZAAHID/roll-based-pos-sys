@@ -30,7 +30,7 @@ async function main() {
       ORDER BY table_name
     `);
     const tables: string[] = tablesResult.rows.map((r: { table_name: string }) => r.table_name);
-    const required = ['roles', 'users', 'categories', 'products', 'inventory', 'inventory_adjustments', 'sales', 'sale_items', 'payments', 'audit_logs'];
+    const required = ['shops', 'roles', 'users', 'categories', 'products', 'inventory', 'inventory_adjustments', 'sales', 'sale_items', 'payments', 'refunds', 'refund_items', 'audit_logs'];
     
     console.log('\n📋  Tables found in public schema:');
     tables.forEach(t => console.log(`    - ${t}`));

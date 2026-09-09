@@ -5,9 +5,9 @@ import {
   useCallback,
 } from 'react';
 import type { KeyboardEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
+import type { ShopSettings } from '../types/shop';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,12 +66,24 @@ function formatDateTime(iso: string): string {
 
 // ─── Receipt Component ────────────────────────────────────────────────────────
 
-function Receipt({ sale }: { sale: CompletedSale }) {
+function DefaultReceiptLogo() {
+  return <svg aria-label="Retail POS" viewBox="0 0 40 40" width="28" height="28" className="mx-auto mb-1" role="img"><circle cx="20" cy="20" r="18" fill="#4f46e5" /><path d="M11 19.5 20 11l9 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 11 28.5v-9Z" fill="white" /><path d="M16 30v-6h8v6" fill="#4f46e5" /></svg>;
+}
+
+function Receipt({ sale, shop }: { sale: CompletedSale; shop: ShopSettings | null }) {
+  const [logoFailed, setLogoFailed] = useState(false);
+  const showLogo = shop?.show_logo !== false;
+  const shopName = shop?.show_name !== false ? (shop?.name || 'Retail POS') : 'Retail POS';
+  const logoUrl = shop?.logo_url;
+  const hasLogo = showLogo && !!logoUrl && !logoFailed;
   return (
     <div id="receipt-content" className="font-mono text-sm text-gray-900 bg-white p-4 max-w-xs mx-auto">
       <div className="text-center mb-3">
-        <p className="font-bold text-base">Retail POS</p>
+        {showLogo && (hasLogo ? <img src={logoUrl!} alt="Shop logo" className="mx-auto mb-1 max-h-12 max-w-32 object-contain" onError={() => setLogoFailed(true)} /> : <DefaultReceiptLogo />)}
+        <p className="font-bold text-base">{shopName}</p>
         <p className="text-xs">Point of Sale</p>
+        {shop?.address && <p className="text-xs">{shop.address}</p>}
+        {shop?.phone && <p className="text-xs">{shop.phone}</p>}
         <div className="border-t border-dashed border-gray-400 my-2" />
         <p className="text-xs">Invoice: {sale.invoice_number}</p>
         <p className="text-xs">{formatDateTime(sale.created_at)}</p>
@@ -125,7 +137,7 @@ function Receipt({ sale }: { sale: CompletedSale }) {
       </div>
 
       <div className="border-t border-dashed border-gray-400 mt-3 pt-2 text-center text-xs">
-        <p>Thank you for your purchase!</p>
+        <p>{shop?.receipt_footer?.trim() || 'Thank you for your purchase!'}</p>
       </div>
     </div>
   );
@@ -184,11 +196,6 @@ function SaleSuccessPanel({
         )}
       </div>
 
-      {/* Print Receipt (hidden from screen, visible on print) */}
-      <div className="print-only">
-        <Receipt sale={sale} />
-      </div>
-
       {/* Actions */}
       <div className="flex gap-3 w-full max-w-sm">
         <button
@@ -196,7 +203,7 @@ function SaleSuccessPanel({
           onClick={handlePrint}
           className="flex-1 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition"
         >
-          🖨 Print Receipt
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="inline-block mr-2 align-[-4px]" aria-hidden="true"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><path d="M6 14h12v7H6zM18 12h.01" /></svg>Print Receipt
         </button>
         <button
           id="pos-new-sale-btn"
@@ -213,8 +220,7 @@ function SaleSuccessPanel({
 // ─── POS Page ─────────────────────────────────────────────────────────────────
 
 export default function POSPage() {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
 
   // Cart state
   const [cart, setCart]                   = useState<CartItem[]>([]);
@@ -236,6 +242,8 @@ export default function POSPage() {
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError]     = useState('');
   const [completedSale, setCompletedSale]     = useState<CompletedSale | null>(null);
+  const [idempotencyKey, setIdempotencyKey]   = useState<string | null>(null);
+  const [shop, setShop]                       = useState<ShopSettings | null>(null);
 
   // Refs
   const barcodeRef  = useRef<HTMLInputElement>(null);
@@ -245,6 +253,7 @@ export default function POSPage() {
   // ── Focus barcode on mount ────────────────────────────────────────────────
   useEffect(() => {
     barcodeRef.current?.focus();
+    api.get<ShopSettings>('/shop').then(setShop).catch(() => undefined);
   }, []);
 
   // ── Debounced product search ──────────────────────────────────────────────
@@ -291,6 +300,7 @@ export default function POSPage() {
       stockQty = 0;
     }
 
+    setIdempotencyKey(null);
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
       if (existing) {
@@ -340,6 +350,7 @@ export default function POSPage() {
 
   // ── Cart operations ───────────────────────────────────────────────────────
   function setQty(productId: number, qty: number) {
+    setIdempotencyKey(null);
     setCart(prev =>
       prev.map(item =>
         item.product.id === productId
@@ -350,10 +361,12 @@ export default function POSPage() {
   }
 
   function removeFromCart(productId: number) {
+    setIdempotencyKey(null);
     setCart(prev => prev.filter(item => item.product.id !== productId));
   }
 
   function clearCart() {
+    setIdempotencyKey(null);
     setCart([]);
     setPaymentMethod('cash');
     setAmountTendered('');
@@ -390,6 +403,8 @@ export default function POSPage() {
     setCheckoutLoading(true);
 
     try {
+      const checkoutKey = idempotencyKey || crypto.randomUUID();
+      if (!idempotencyKey) setIdempotencyKey(checkoutKey);
       const finalTendered = paymentMethod === 'cash' ? parseFloat(amountTendered) : subtotal;
       const payload = {
         items: cart.map(item => ({ product_id: item.product.id, quantity: item.quantity })),
@@ -397,7 +412,7 @@ export default function POSPage() {
         amount_tendered: finalTendered,
       };
 
-      const sale = await api.post<any>('/sales', payload);
+      const sale = await api.post<any>('/sales', payload, { 'Idempotency-Key': checkoutKey });
 
       // Enrich with frontend info for receipt (sale data from server is authoritative)
       const enriched: CompletedSale = {
@@ -422,6 +437,7 @@ export default function POSPage() {
 
   // ── New Sale ──────────────────────────────────────────────────────────────
   function handleNewSale() {
+    setIdempotencyKey(null);
     setCompletedSale(null);
     setCart([]);
     setPaymentMethod('cash');
@@ -437,48 +453,29 @@ export default function POSPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
-      {/* ── Top Bar ───────────────────────────────────────────────────────── */}
-      <header className="bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-center justify-between no-print">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center">
-            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
-          </div>
-          <span className="font-bold text-lg tracking-tight">Retail POS</span>
-          <span className="hidden sm:block text-gray-500 text-sm">Point of Sale</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400">
-            {user?.fullName}
-            <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-indigo-600/30 text-indigo-300 capitalize">
-              {user?.role}
-            </span>
-          </span>
-          <button
-            id="pos-logout-btn"
-            onClick={() => { logout(); navigate('/login'); }}
-            className="text-sm text-gray-400 hover:text-white transition"
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
-
       {/* ── Success Panel (shown after sale) ──────────────────────────────── */}
       {completedSale ? (
-        <div className="flex-1 flex flex-col no-print">
-          <SaleSuccessPanel sale={completedSale} onNewSale={handleNewSale} />
+        <div className="flex-1 flex flex-col">
+          <div className="no-print">
+            <SaleSuccessPanel sale={completedSale} onNewSale={handleNewSale} />
+          </div>
           {/* Hidden receipt for printing */}
           <div className="print-only">
-            <Receipt sale={completedSale} />
+            <Receipt sale={completedSale} shop={shop} />
           </div>
         </div>
       ) : (
-        <div className="flex flex-1 overflow-hidden no-print">
+        <div className="flex flex-1 flex-col overflow-visible no-print lg:flex-row lg:overflow-hidden">
           {/* ── Left: Search + Cart ───────────────────────────────────────── */}
-          <div className="flex-1 flex flex-col p-4 gap-4 overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-visible p-4 lg:overflow-hidden">
+
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="page-kicker">Point of sale</p>
+                <h1 className="page-title text-2xl">New transaction</h1>
+              </div>
+              <span className="status-badge status-neutral">Ready</span>
+            </div>
 
             {/* Barcode Input */}
             <div className="bg-gray-900 rounded-xl border border-gray-700 p-4">
@@ -594,7 +591,7 @@ export default function POSPage() {
                                 {item.product.barcode || 'No barcode'}
                                 {' · '}
                                 <span className={overStock ? 'text-amber-400' : 'text-gray-500'}>
-                                  Stock: {item.stockQty}{overStock && ' ⚠ exceeds stock'}
+                                  Stock: {item.stockQty}{overStock && <span className="text-red-500"> <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="inline-block align-[-2px]" aria-hidden="true"><path d="M12 3 2.8 20h18.4L12 3Z" /><path d="M12 9v4M12 17h.01" /></svg> exceeds stock</span>}
                                 </span>
                               </p>
                             </td>
@@ -648,7 +645,7 @@ export default function POSPage() {
           </div>
 
           {/* ── Right: Payment Panel ────────────────────────────────────────── */}
-          <div className="w-80 shrink-0 border-l border-gray-700 bg-gray-900 flex flex-col p-4 gap-4">
+          <div className="w-full shrink-0 border-t border-gray-700 bg-gray-900 p-4 flex flex-col gap-4 lg:w-80 lg:border-l lg:border-t-0">
 
             {/* Totals */}
             <div className="bg-gray-800 rounded-xl p-4 space-y-2">
@@ -675,7 +672,7 @@ export default function POSPage() {
                   <button
                     key={method}
                     id={`pos-payment-${method}`}
-                    onClick={() => { setPaymentMethod(method); setAmountTendered(''); setCheckoutError(''); }}
+                    onClick={() => { setIdempotencyKey(null); setPaymentMethod(method); setAmountTendered(''); setCheckoutError(''); }}
                     className={`py-2.5 rounded-lg text-sm font-semibold capitalize transition
                       ${paymentMethod === method
                         ? 'bg-indigo-600 text-white'
@@ -699,7 +696,7 @@ export default function POSPage() {
                   min={subtotal}
                   step="0.01"
                   value={amountTendered}
-                  onChange={e => { setAmountTendered(e.target.value); setCheckoutError(''); }}
+                  onChange={e => { setIdempotencyKey(null); setAmountTendered(e.target.value); setCheckoutError(''); }}
                   placeholder={formatCurrency(subtotal)}
                   className={`w-full px-4 py-2.5 rounded-lg text-white text-sm bg-gray-800 border
                     focus:outline-none focus:ring-2 focus:ring-indigo-500 transition
@@ -737,7 +734,7 @@ export default function POSPage() {
               id="pos-complete-sale-btn"
               onClick={handleCompleteSale}
               disabled={checkoutLoading || cart.length === 0 || cashShortfall}
-              className={`mt-auto w-full py-4 rounded-xl font-bold text-lg tracking-wide transition
+              className={`mt-auto w-full min-h-12 rounded-xl py-4 text-base font-bold tracking-wide transition
                 ${cart.length > 0 && !cashShortfall && !checkoutLoading
                   ? 'bg-green-600 hover:bg-green-500 text-white'
                   : 'bg-gray-800 text-gray-500 cursor-not-allowed'}`}

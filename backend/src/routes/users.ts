@@ -20,8 +20,8 @@ async function auditLog(
 ) {
   try {
     await query(
-      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, old_values, new_values, ip_address)
-       VALUES ($1, $2, 'user', $3, $4, $5, $6)`,
+      `INSERT INTO audit_logs (shop_id, user_id, action, entity_type, entity_id, old_values, new_values, ip_address)
+       VALUES ((SELECT shop_id FROM users WHERE id = $1), $1, $2, 'user', $3, $4, $5, $6)`,
       [actorId, action, entityId, oldValues ? JSON.stringify(oldValues) : null, newValues ? JSON.stringify(newValues) : null, ip || null]
     );
   } catch (e) {
@@ -40,7 +40,8 @@ router.get('/', async (req: Request, res: Response) => {
       `SELECT ${SAFE_COLS}
        FROM users u
        JOIN roles r ON r.id = u.role_id
-       ORDER BY u.created_at DESC, u.id DESC`
+       WHERE u.shop_id = $1
+       ORDER BY u.created_at DESC, u.id DESC`, [req.user!.shopId]
     );
     res.json(result.rows);
   } catch (err) {
@@ -62,8 +63,8 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
       `SELECT ${SAFE_COLS}
        FROM users u
        JOIN roles r ON r.id = u.role_id
-       WHERE u.id = $1`,
-      [userId]
+       WHERE u.id = $1 AND u.shop_id = $2`,
+      [userId, req.user!.shopId]
     );
 
     if (result.rows.length === 0) {
@@ -107,8 +108,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     // Duplicate username check
     const dupCheck = await query(
-      'SELECT id FROM users WHERE username = $1',
-      [username.trim().toLowerCase()]
+      'SELECT id FROM users WHERE shop_id = $1 AND username = $2',
+      [req.user!.shopId, username.trim().toLowerCase()]
     );
     if (dupCheck.rows.length > 0) {
       res.status(409).json({ message: 'Username already exists' });
@@ -117,7 +118,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
     // If email provided, check it too
     if (email) {
-      const emailDup = await query('SELECT id FROM users WHERE email = $1', [email.trim().toLowerCase()]);
+      const emailDup = await query('SELECT id FROM users WHERE shop_id = $1 AND email = $2', [req.user!.shopId, email.trim().toLowerCase()]);
       if (emailDup.rows.length > 0) {
         res.status(409).json({ message: 'Email already in use' });
         return;
@@ -140,10 +141,10 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const effectiveFullName = (full_name && full_name.trim()) ? full_name.trim() : username.trim();
 
     const insertResult = await query(
-      `INSERT INTO users (username, email, password_hash, full_name, role_id, is_active)
-       VALUES ($1, $2, $3, $4, $5, TRUE)
+      `INSERT INTO users (shop_id, username, email, password_hash, full_name, role_id, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE)
        RETURNING id, username, email, full_name, is_active, created_at`,
-      [username.trim().toLowerCase(), effectiveEmail, password_hash, effectiveFullName, roleId]
+      [req.user!.shopId, username.trim().toLowerCase(), effectiveEmail, password_hash, effectiveFullName, roleId]
     );
 
     const newUser = { ...(insertResult.rows[0] as { id: number; username: string; email: string | null; full_name: string | null; is_active: boolean; created_at: string }), role };
@@ -178,8 +179,8 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
     // Fetch current user state first
     const currentRes = await query(
       `SELECT u.id, u.username, u.email, u.full_name, u.is_active, r.name AS role
-       FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1`,
-      [userId]
+       FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1 AND u.shop_id = $2`,
+      [userId, req.user!.shopId]
     );
     if (currentRes.rows.length === 0) {
       res.status(404).json({ message: 'User not found' });
@@ -196,8 +197,8 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       const activeOwnerCountRes = await query(
         `SELECT COUNT(u.id) AS count FROM users u
          JOIN roles r ON r.id = u.role_id
-         WHERE r.name = 'owner' AND u.is_active = TRUE AND u.id != $1`,
-        [userId]
+         WHERE r.name = 'owner' AND u.is_active = TRUE AND u.shop_id = $2 AND u.id != $1`,
+        [userId, req.user!.shopId]
       );
       if (parseInt(activeOwnerCountRes.rows[0].count as string, 10) === 0) {
         res.status(403).json({ message: 'Cannot deactivate or demote the last active owner' });
@@ -208,8 +209,8 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
     // Duplicate username check (excluding self)
     if (username !== undefined) {
       const dupCheck = await query(
-        'SELECT id FROM users WHERE username = $1 AND id != $2',
-        [username.trim().toLowerCase(), userId]
+        'SELECT id FROM users WHERE shop_id = $1 AND username = $2 AND id != $3',
+        [req.user!.shopId, username.trim().toLowerCase(), userId]
       );
       if (dupCheck.rows.length > 0) {
         res.status(409).json({ message: 'Username already exists' });
@@ -220,8 +221,8 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
     // Duplicate email check (excluding self)
     if (email !== undefined && email !== null && email !== '') {
       const emailDup = await query(
-        'SELECT id FROM users WHERE email = $1 AND id != $2',
-        [email.trim().toLowerCase(), userId]
+        'SELECT id FROM users WHERE shop_id = $1 AND email = $2 AND id != $3',
+        [req.user!.shopId, email.trim().toLowerCase(), userId]
       );
       if (emailDup.rows.length > 0) {
         res.status(409).json({ message: 'Email already in use' });
@@ -246,8 +247,8 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
     let idx = 1;
 
     if (username !== undefined) { setClauses.push(`username = $${idx++}`); params.push(username.trim().toLowerCase()); }
-    if (email !== undefined)    { setClauses.push(`email = $${idx++}`);    params.push(email ? email.trim().toLowerCase() : null); }
-    if (full_name !== undefined){ setClauses.push(`full_name = $${idx++}`);params.push(full_name); }
+    if (email !== undefined)    { setClauses.push(`email = $${idx++}`);    params.push(email && email.trim() ? email.trim().toLowerCase() : `${current.username}@store.local`); }
+    if (full_name !== undefined){ setClauses.push(`full_name = $${idx++}`);params.push(full_name && full_name.trim() ? full_name.trim() : current.username); }
     if (roleId !== undefined)   { setClauses.push(`role_id = $${idx++}`);  params.push(roleId); }
     if (is_active !== undefined){ setClauses.push(`is_active = $${idx++}`);params.push(is_active); }
 
@@ -257,10 +258,10 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
     }
 
     setClauses.push(`updated_at = NOW()`);
-    params.push(userId);
+    params.push(userId, req.user!.shopId);
 
     const updateResult = await query(
-      `UPDATE users SET ${setClauses.join(', ')} WHERE id = $${idx} RETURNING id, username, email, full_name, is_active, created_at`,
+      `UPDATE users SET ${setClauses.join(', ')} WHERE id = $${idx} AND shop_id = $${idx + 1} RETURNING id, username, email, full_name, is_active, created_at`,
       params
     );
 
@@ -299,7 +300,7 @@ router.put('/:id/password', async (req: Request, res: Response): Promise<void> =
 
   try {
     // Verify user exists
-    const userCheck = await query('SELECT id FROM users WHERE id = $1', [userId]);
+    const userCheck = await query('SELECT id FROM users WHERE id = $1 AND shop_id = $2', [userId, req.user!.shopId]);
     if (userCheck.rows.length === 0) {
       res.status(404).json({ message: 'User not found' });
       return;
@@ -309,8 +310,8 @@ router.put('/:id/password', async (req: Request, res: Response): Promise<void> =
     const password_hash = await bcrypt.hash(password, 12);
 
     await query(
-      'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
-      [password_hash, userId]
+      'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND shop_id = $3',
+      [password_hash, userId, req.user!.shopId]
     );
 
     // Audit log — no password stored
@@ -336,8 +337,8 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     // Fetch target to check role
     const userRes = await query(
       `SELECT u.id, u.is_active, r.name AS role FROM users u
-       JOIN roles r ON r.id = u.role_id WHERE u.id = $1`,
-      [userId]
+       JOIN roles r ON r.id = u.role_id WHERE u.id = $1 AND u.shop_id = $2`,
+      [userId, req.user!.shopId]
     );
     if (userRes.rows.length === 0) {
       res.status(404).json({ message: 'User not found' });
@@ -350,8 +351,8 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
       const activeOwnersCount = await query(
         `SELECT COUNT(u.id) AS count FROM users u
          JOIN roles r ON r.id = u.role_id
-         WHERE r.name = 'owner' AND u.is_active = TRUE AND u.id != $1`,
-        [userId]
+         WHERE r.name = 'owner' AND u.is_active = TRUE AND u.shop_id = $2 AND u.id != $1`,
+        [userId, req.user!.shopId]
       );
       if (parseInt(activeOwnersCount.rows[0].count as string, 10) === 0) {
         res.status(403).json({ message: 'Cannot deactivate the last active owner' });
@@ -361,8 +362,8 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
 
     // Soft delete
     await query(
-      'UPDATE users SET is_active = FALSE, updated_at = NOW() WHERE id = $1',
-      [userId]
+      'UPDATE users SET is_active = FALSE, updated_at = NOW() WHERE id = $1 AND shop_id = $2',
+      [userId, req.user!.shopId]
     );
 
     // Audit log

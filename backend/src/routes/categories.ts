@@ -11,8 +11,8 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const result = await query(
       `SELECT id, name, description, is_active, created_at, updated_at
-       FROM categories
-       ORDER BY id ASC`
+       FROM categories WHERE shop_id = $1
+       ORDER BY id ASC`, [req.user!.shopId]
     );
     res.json(result.rows);
   } catch (err) {
@@ -32,8 +32,8 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const result = await query(
       `SELECT id, name, description, is_active, created_at, updated_at
-       FROM categories WHERE id = $1`,
-      [id]
+       FROM categories WHERE id = $1 AND shop_id = $2`,
+      [id, req.user!.shopId]
     );
 
     if (result.rows.length === 0) {
@@ -59,17 +59,17 @@ router.post('/', authorize('owner', 'manager'), async (req: Request, res: Respon
 
   try {
     // Check for duplicate category name
-    const duplicateCheck = await query('SELECT id FROM categories WHERE name = $1', [name.trim()]);
-    if (duplicateCheck.rows.length > 0) {
+    const duplicateCheck = await query('SELECT id FROM categories WHERE shop_id = $1 AND LOWER(name) = LOWER($2)', [req.user!.shopId, name.trim()]);
+      if (duplicateCheck.rows.length > 0) {
       res.status(409).json({ message: 'Category name already exists' });
       return;
     }
 
     const insertResult = await query(
-      `INSERT INTO categories (name, description, is_active)
-       VALUES ($1, $2, $3)
+      `INSERT INTO categories (shop_id, name, description, is_active)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, name, description, is_active, created_at, updated_at`,
-      [name.trim(), description || null, is_active !== undefined ? is_active : true]
+      [req.user!.shopId, name.trim(), description || null, is_active !== undefined ? is_active : true]
     );
 
     res.status(201).json(insertResult.rows[0]);
@@ -97,8 +97,8 @@ router.put('/:id', authorize('owner', 'manager'), async (req: Request, res: Resp
   try {
     // Check for duplicate category name on other IDs
     const duplicateCheck = await query(
-      'SELECT id FROM categories WHERE name = $1 AND id != $2',
-      [name.trim(), id]
+        'SELECT id FROM categories WHERE shop_id = $1 AND LOWER(name) = LOWER($2) AND id != $3',
+        [req.user!.shopId, name.trim(), id]
     );
     if (duplicateCheck.rows.length > 0) {
       res.status(409).json({ message: 'Category name already exists' });
@@ -108,9 +108,9 @@ router.put('/:id', authorize('owner', 'manager'), async (req: Request, res: Resp
     const updateResult = await query(
       `UPDATE categories
        SET name = $1, description = $2, is_active = $3, updated_at = NOW()
-       WHERE id = $4
+       WHERE id = $4 AND shop_id = $5
        RETURNING id, name, description, is_active, created_at, updated_at`,
-      [name.trim(), description || null, is_active !== undefined ? is_active : true, id]
+      [name.trim(), description || null, is_active !== undefined ? is_active : true, id, req.user!.shopId]
     );
 
     if (updateResult.rows.length === 0) {
@@ -137,8 +137,8 @@ router.delete('/:id', authorize('owner', 'manager'), async (req: Request, res: R
     // Note: Do not hard delete to avoid foreign key violations with products
     // Alternatively, we could soft delete (set is_active = false)
     const result = await query(
-      'UPDATE categories SET is_active = FALSE, updated_at = NOW() WHERE id = $1 RETURNING id',
-      [id]
+      'UPDATE categories SET is_active = FALSE, updated_at = NOW() WHERE id = $1 AND shop_id = $2 RETURNING id',
+      [id, req.user!.shopId]
     );
 
     if (result.rows.length === 0) {

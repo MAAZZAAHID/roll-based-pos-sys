@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { query } from '../db';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -9,6 +10,7 @@ export interface JwtPayload {
   userId: number;
   username: string;
   role: Role;
+  shopId: number;
 }
 
 // Augment Express Request to carry the authenticated user
@@ -37,7 +39,7 @@ export function signToken(payload: JwtPayload): string {
  * Verify the JWT in the Authorization header.
  * Attaches the decoded payload to req.user.
  */
-export function authenticate(req: Request, res: Response, next: NextFunction): void {
+export async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -54,7 +56,17 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
 
   try {
     const payload = jwt.verify(token, secret) as JwtPayload;
-    req.user = payload;
+    const userResult = await query<{ id: number; username: string; is_active: boolean; role: string; shop_id: number }>(
+      `SELECT u.id, u.username, u.is_active, r.name AS role
+       , u.shop_id
+       FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1`,
+      [payload.userId]
+    );
+    if (userResult.rows.length === 0 || !userResult.rows[0].is_active) {
+      res.status(401).json({ message: 'User account is inactive or unavailable' });
+      return;
+    }
+    req.user = { userId: userResult.rows[0].id, username: userResult.rows[0].username, role: userResult.rows[0].role as Role, shopId: userResult.rows[0].shop_id };
     next();
   } catch {
     res.status(401).json({ message: 'Invalid or expired token' });

@@ -8,6 +8,7 @@ export interface AuthUser {
   email: string;
   fullName: string;
   role: 'owner' | 'manager' | 'cashier';
+  shopId: number;
 }
 
 interface AuthContextValue {
@@ -15,6 +16,7 @@ interface AuthContextValue {
   token: string | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
+  createShop: (data: { shopName: string; ownerName: string; ownerEmail: string; password: string }) => Promise<void>;
   logout: () => void;
 }
 
@@ -55,6 +57,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data.user);
   }
 
+  async function createShop(data: { shopName: string; ownerName: string; ownerEmail: string; password: string }) {
+    const result = await api.post<{ token: string; user: AuthUser }>('/auth/create-shop', data);
+    localStorage.setItem('pos_token', result.token);
+    setToken(result.token);
+    setUser(result.user);
+  }
+
   function logout() {
     localStorage.removeItem('pos_token');
     setToken(null);
@@ -62,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, createShop, logout }}>
       {children}
     </AuthContext.Provider>
   );

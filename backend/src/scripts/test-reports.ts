@@ -2,6 +2,8 @@
  * Smoke-tests for Dashboard & Reports (Step 12).
  */
 
+import { requiredTestCredential, testOwnerUsername } from './test-config';
+
 const BASE = `http://localhost:${process.env.PORT || 3001}/api`;
 
 async function req(method: string, path: string, body?: object, token?: string) {
@@ -22,10 +24,12 @@ function assert(condition: boolean, label: string) {
 }
 
 async function main() {
+  const ownerPassword = requiredTestCredential('TEST_OWNER_PASSWORD');
+  const testPassword = requiredTestCredential('TEST_PASSWORD');
   console.log('\n📊  Dashboard & Reports smoke-tests\n');
 
   // 1. Auth & Users setup
-  const ownerLogin = await req('POST', '/auth/login', { username: 'owner', password: 'Admin@1234' });
+  const ownerLogin = await req('POST', '/auth/login', { username: testOwnerUsername, password: ownerPassword });
   const ownerToken = ownerLogin.body.token;
 
   let managerToken = '';
@@ -34,21 +38,21 @@ async function main() {
     const mgr = await req('POST', '/users', {
       username: `rep_manager_${Date.now()}`,
       email: `rep_manager_${Date.now()}@test.com`,
-      password: 'Password@123',
+      password: testPassword,
       full_name: 'Reports Manager',
       role: 'manager'
     }, ownerToken);
-    const mgrL = await req('POST', '/auth/login', { username: mgr.body.username, password: 'Password@123' });
+    const mgrL = await req('POST', '/auth/login', { username: mgr.body.username, password: testPassword });
     managerToken = mgrL.body.token;
 
     const cshr = await req('POST', '/users', {
       username: `rep_cashier_${Date.now()}`,
       email: `rep_cashier_${Date.now()}@test.com`,
-      password: 'Password@123',
+      password: testPassword,
       full_name: 'Reports Cashier',
       role: 'cashier'
     }, ownerToken);
-    const cshrL = await req('POST', '/auth/login', { username: cshr.body.username, password: 'Password@123' });
+    const cshrL = await req('POST', '/auth/login', { username: cshr.body.username, password: testPassword });
     cashierToken = cshrL.body.token;
   } catch (e) {
     console.error("Failed to setup users", e);

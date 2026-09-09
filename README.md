@@ -12,8 +12,9 @@ A full-stack Point of Sale system built with React + TypeScript + Tailwind CSS o
 
 ```
 retail-pos/
-├── frontend/       # React + Vite frontend
-├── backend/        # Node.js + Express API
+├── api/             # Vercel entry point for the Express API
+├── frontend/        # React + Vite frontend
+├── backend/         # Node.js + Express API source
 ├── database/       # SQL migrations and seed data
 ├── .env.example    # Environment variable template
 └── README.md
@@ -38,31 +39,31 @@ cd database
 psql -U pos_user -d retail_pos -f migrate.sql
 ```
 
-### 2. Backend
+### 2. Install and build
+
+```bash
+npm install
+# Copy .env.example to backend/.env and edit DATABASE_URL and JWT_SECRET
+npm run build:backend
+```
+
+Start the API and frontend in separate terminals for local development:
 
 ```bash
 cd backend
-cp ../.env.example .env
-# Edit .env with your DATABASE_URL and JWT_SECRET
-npm install
-npm run build
-node dist/index.js
-```
-
-### 3. Frontend
-
-```bash
-cd frontend
-npm install
 npm run dev
 ```
 
-## Default Credentials
+```bash
+cd frontend
+npm run dev
+```
 
-- **Username**: `owner`
-- **Password**: `Admin@1234`
+The Vite development server proxies `/api/*` to the local Express server. In production, Vercel serves both from the same domain; no `VITE_API_URL` is needed.
 
-> ⚠️ Change the default password immediately after first login.
+## Development credentials
+
+No default credentials are provided in this repository. Configure a development or test account through an isolated environment.
 
 ## Roles
 

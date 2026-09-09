@@ -6,6 +6,20 @@ const router = Router();
 
 router.use(authenticate);
 
+function strictDecimal(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string' || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value.trim())) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function strictNonNegativeInteger(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isInteger(value) && value >= 0 ? value : null;
+  if (typeof value !== 'string' || !/^\d+$/.test(value.trim())) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 // ─── GET /api/products ────────────────────────────────────────────────────────
 router.get('/', async (req: Request, res: Response) => {
   try {
@@ -14,8 +28,9 @@ router.get('/', async (req: Request, res: Response) => {
               p.low_stock_threshold, p.is_active, p.created_at, p.updated_at,
               c.name AS category_name
        FROM products p
-       LEFT JOIN categories c ON c.id = p.category_id
-       ORDER BY p.id ASC`
+       LEFT JOIN categories c ON c.id = p.category_id AND c.shop_id = p.shop_id
+       WHERE p.shop_id = $1
+       ORDER BY p.id ASC`, [req.user!.shopId]
     );
     res.json(result.rows);
   } catch (err) {
@@ -38,9 +53,9 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
               p.low_stock_threshold, p.is_active, p.created_at, p.updated_at,
               c.name AS category_name
        FROM products p
-       LEFT JOIN categories c ON c.id = p.category_id
-       WHERE p.id = $1`,
-      [id]
+       LEFT JOIN categories c ON c.id = p.category_id AND c.shop_id = p.shop_id
+       WHERE p.id = $1 AND p.shop_id = $2`,
+      [id, req.user!.shopId]
     );
 
     if (result.rows.length === 0) {
@@ -64,20 +79,20 @@ router.post('/', authorize('owner', 'manager'), async (req: Request, res: Respon
     return;
   }
   
-  const sellPrice = parseFloat(selling_price);
-  const costPrice = parseFloat(cost_price);
+  const sellPrice = strictDecimal(selling_price);
+  const costPrice = strictDecimal(cost_price);
 
-  if (isNaN(sellPrice) || sellPrice < 0) {
+  if (sellPrice === null || sellPrice < 0) {
     res.status(400).json({ message: 'Selling price must be a valid positive number' });
     return;
   }
-  if (isNaN(costPrice) || costPrice < 0) {
+  if (costPrice === null || costPrice < 0) {
     res.status(400).json({ message: 'Cost price must be a valid positive number' });
     return;
   }
 
-  const threshold = low_stock_threshold !== undefined ? parseInt(low_stock_threshold, 10) : 10;
-  if (isNaN(threshold) || threshold < 0) {
+  const threshold = low_stock_threshold !== undefined ? strictNonNegativeInteger(low_stock_threshold) : 10;
+  if (threshold === null || threshold < 0) {
     res.status(400).json({ message: 'Low stock threshold must be a valid positive integer' });
     return;
   }
@@ -87,7 +102,7 @@ router.post('/', authorize('owner', 'manager'), async (req: Request, res: Respon
   try {
     // Check for duplicate barcode
     if (finalBarcode) {
-      const duplicateCheck = await query('SELECT id FROM products WHERE barcode = $1', [finalBarcode]);
+        const duplicateCheck = await query('SELECT id FROM products WHERE shop_id = $1 AND barcode = $2', [req.user!.shopId, finalBarcode]);
       if (duplicateCheck.rows.length > 0) {
         res.status(409).json({ message: 'Barcode already exists' });
         return;
@@ -97,12 +112,12 @@ router.post('/', authorize('owner', 'manager'), async (req: Request, res: Respon
     // Validate category exists if provided
     let catId = null;
     if (category_id) {
-      catId = parseInt(category_id, 10);
-      if (isNaN(catId)) {
+      catId = strictNonNegativeInteger(category_id);
+      if (catId === null) {
         res.status(400).json({ message: 'Invalid category ID' });
         return;
       }
-      const catCheck = await query('SELECT id FROM categories WHERE id = $1', [catId]);
+        const catCheck = await query('SELECT id FROM categories WHERE id = $1 AND shop_id = $2 AND is_active = TRUE', [catId, req.user!.shopId]);
       if (catCheck.rows.length === 0) {
         res.status(400).json({ message: 'Category not found' });
         return;
@@ -110,10 +125,10 @@ router.post('/', authorize('owner', 'manager'), async (req: Request, res: Respon
     }
 
     const insertResult = await query(
-      `INSERT INTO products (name, barcode, category_id, selling_price, cost_price, low_stock_threshold, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO products (shop_id, name, barcode, category_id, selling_price, cost_price, low_stock_threshold, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id, name, barcode, category_id, selling_price, cost_price, low_stock_threshold, is_active, created_at, updated_at`,
-      [name.trim(), finalBarcode, catId, sellPrice, costPrice, threshold, is_active !== undefined ? is_active : true]
+        [req.user!.shopId, name.trim(), finalBarcode, catId, sellPrice, costPrice, threshold, is_active !== undefined ? is_active : true]
     );
 
     res.status(201).json(insertResult.rows[0]);
@@ -138,20 +153,20 @@ router.put('/:id', authorize('owner', 'manager'), async (req: Request, res: Resp
     return;
   }
   
-  const sellPrice = parseFloat(selling_price);
-  const costPrice = parseFloat(cost_price);
+  const sellPrice = strictDecimal(selling_price);
+  const costPrice = strictDecimal(cost_price);
 
-  if (isNaN(sellPrice) || sellPrice < 0) {
+  if (sellPrice === null || sellPrice < 0) {
     res.status(400).json({ message: 'Selling price must be a valid positive number' });
     return;
   }
-  if (isNaN(costPrice) || costPrice < 0) {
+  if (costPrice === null || costPrice < 0) {
     res.status(400).json({ message: 'Cost price must be a valid positive number' });
     return;
   }
 
-  const threshold = low_stock_threshold !== undefined ? parseInt(low_stock_threshold, 10) : 10;
-  if (isNaN(threshold) || threshold < 0) {
+  const threshold = low_stock_threshold !== undefined ? strictNonNegativeInteger(low_stock_threshold) : 10;
+  if (threshold === null || threshold < 0) {
     res.status(400).json({ message: 'Low stock threshold must be a valid positive integer' });
     return;
   }
@@ -162,8 +177,8 @@ router.put('/:id', authorize('owner', 'manager'), async (req: Request, res: Resp
     // Check for duplicate barcode on other products
     if (finalBarcode) {
       const duplicateCheck = await query(
-        'SELECT id FROM products WHERE barcode = $1 AND id != $2',
-        [finalBarcode, id]
+        'SELECT id FROM products WHERE shop_id = $1 AND barcode = $2 AND id != $3',
+        [req.user!.shopId, finalBarcode, id]
       );
       if (duplicateCheck.rows.length > 0) {
         res.status(409).json({ message: 'Barcode already exists' });
@@ -174,24 +189,29 @@ router.put('/:id', authorize('owner', 'manager'), async (req: Request, res: Resp
     // Validate category exists if provided
     let catId = null;
     if (category_id) {
-      catId = parseInt(category_id, 10);
-      if (isNaN(catId)) {
+      catId = strictNonNegativeInteger(category_id);
+      if (catId === null) {
         res.status(400).json({ message: 'Invalid category ID' });
         return;
       }
-      const catCheck = await query('SELECT id FROM categories WHERE id = $1', [catId]);
+      const catCheck = await query('SELECT id FROM categories WHERE id = $1 AND shop_id = $2 AND is_active = TRUE', [catId, req.user!.shopId]);
       if (catCheck.rows.length === 0) {
         res.status(400).json({ message: 'Category not found' });
         return;
       }
     }
 
+    const currentThreshold = await query('SELECT low_stock_threshold FROM products WHERE id = $1 AND shop_id = $2', [id, req.user!.shopId]);
+    const effectiveThreshold = low_stock_threshold !== undefined
+      ? threshold
+      : currentThreshold.rows[0]?.low_stock_threshold ?? 10;
+
     const updateResult = await query(
       `UPDATE products
        SET name = $1, barcode = $2, category_id = $3, selling_price = $4, cost_price = $5, low_stock_threshold = $6, is_active = $7, updated_at = NOW()
-       WHERE id = $8
+       WHERE id = $8 AND shop_id = $9
        RETURNING id, name, barcode, category_id, selling_price, cost_price, low_stock_threshold, is_active, created_at, updated_at`,
-      [name.trim(), finalBarcode, catId, sellPrice, costPrice, threshold, is_active !== undefined ? is_active : true, id]
+        [name.trim(), finalBarcode, catId, sellPrice, costPrice, effectiveThreshold, is_active !== undefined ? is_active : true, id, req.user!.shopId]
     );
 
     if (updateResult.rows.length === 0) {
@@ -217,8 +237,8 @@ router.delete('/:id', authorize('owner', 'manager'), async (req: Request, res: R
   try {
     // Soft delete to avoid breaking sales history/inventory relationships
     const result = await query(
-      'UPDATE products SET is_active = FALSE, updated_at = NOW() WHERE id = $1 RETURNING id',
-      [id]
+      'UPDATE products SET is_active = FALSE, updated_at = NOW() WHERE id = $1 AND shop_id = $2 RETURNING id',
+      [id, req.user!.shopId]
     );
 
     if (result.rows.length === 0) {

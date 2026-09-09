@@ -19,8 +19,8 @@ router.get('/dashboard', async (req: Request, res: Response) => {
          COALESCE(SUM(total_amount), 0) AS total_sales,
          COUNT(id) AS transactions
        FROM sales
-       WHERE created_at >= $1::date AND created_at < ($1::date + interval '1 day')`,
-      [todayStr]
+      WHERE shop_id = $1 AND status = 'completed' AND created_at >= $2::date AND created_at < ($2::date + interval '1 day')`,
+      [req.user!.shopId, todayStr]
     );
     const todaySales = parseFloat(todaySalesRes.rows[0].total_sales as string);
     const todayTransactions = parseInt(todaySalesRes.rows[0].transactions as string, 10);
@@ -30,11 +30,11 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     const invStatsRes = await query(
       `SELECT
          COUNT(p.id) AS active_products,
-         SUM(CASE WHEN i.quantity <= p.low_stock_threshold AND i.quantity > 0 THEN 1 ELSE 0 END) AS low_stock,
-         SUM(CASE WHEN i.quantity <= 0 THEN 1 ELSE 0 END) AS out_of_stock
+         SUM(CASE WHEN COALESCE(i.quantity, 0) <= p.low_stock_threshold AND COALESCE(i.quantity, 0) > 0 THEN 1 ELSE 0 END) AS low_stock,
+         SUM(CASE WHEN COALESCE(i.quantity, 0) <= 0 THEN 1 ELSE 0 END) AS out_of_stock
        FROM products p
        LEFT JOIN inventory i ON i.product_id = p.id
-       WHERE p.is_active = TRUE`
+       WHERE p.is_active = TRUE AND p.shop_id = $1`, [req.user!.shopId]
     );
     const invStats = {
       active_products: parseInt(invStatsRes.rows[0].active_products as string, 10) || 0,
@@ -51,8 +51,9 @@ router.get('/dashboard', async (req: Request, res: Response) => {
        FROM sales s
        JOIN users u ON u.id = s.cashier_id
        LEFT JOIN payments p ON p.sale_id = s.id
-       ORDER BY s.created_at DESC
-       LIMIT 5`
+      WHERE s.shop_id = $1 AND s.status = 'completed'
+      ORDER BY s.created_at DESC
+       LIMIT 5`, [req.user!.shopId]
     );
 
     // 4. Best-Selling Products (Today)
@@ -62,11 +63,11 @@ router.get('/dashboard', async (req: Request, res: Response) => {
          SUM(si.quantity) AS quantity_sold
        FROM sale_items si
        JOIN sales s ON s.id = si.sale_id
-       WHERE s.created_at >= $1::date AND s.created_at < ($1::date + interval '1 day')
+      WHERE s.shop_id = $1 AND s.status = 'completed' AND s.created_at >= $2::date AND s.created_at < ($2::date + interval '1 day')
        GROUP BY si.product_id, si.product_name
        ORDER BY quantity_sold DESC
        LIMIT 5`,
-      [todayStr]
+      [req.user!.shopId, todayStr]
     );
 
     // 5. Low Stock Products (Max 5 for dashboard)
@@ -74,9 +75,9 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       `SELECT p.name AS product_name, i.quantity, p.low_stock_threshold
        FROM products p
        JOIN inventory i ON i.product_id = p.id
-       WHERE p.is_active = TRUE AND i.quantity <= p.low_stock_threshold
-       ORDER BY i.quantity ASC
-       LIMIT 5`
+      WHERE p.is_active = TRUE AND p.shop_id = $1 AND COALESCE(i.quantity, 0) <= p.low_stock_threshold
+      ORDER BY COALESCE(i.quantity, 0) ASC
+       LIMIT 5`, [req.user!.shopId]
     );
 
     res.json({
@@ -102,18 +103,22 @@ router.get('/sales', async (req: Request, res: Response) => {
   
   const conditions: string[] = [];
   const params: unknown[] = [];
-  let paramIdx = 1;
+  let paramIdx = 2;
+  params.push(req.user!.shopId);
+
+  conditions.push("s.status = 'completed'");
 
   if (date_from) {
-    conditions.push(`s.created_at >= $${paramIdx++}`);
+    conditions.push(`s.status = 'completed' AND s.created_at >= $${paramIdx++}`);
     params.push(date_from);
   }
   if (date_to) {
-    conditions.push(`s.created_at < ($${paramIdx++}::date + interval '1 day')`);
+    conditions.push(`s.status = 'completed' AND s.created_at < ($${paramIdx++}::date + interval '1 day')`);
     params.push(date_to);
   }
 
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  conditions.unshift('s.shop_id = $1');
+  const where = `WHERE ${conditions.join(' AND ')}`;
 
   try {
     const summaryRes = await query(
@@ -121,7 +126,7 @@ router.get('/sales', async (req: Request, res: Response) => {
          COALESCE(SUM(s.total_amount), 0) AS total_sales,
          COUNT(DISTINCT s.id) AS transactions
        FROM sales s
-       ${where}`,
+      ${where || "WHERE s.status = 'completed'"}`,
       params
     );
     const totalSales = parseFloat(summaryRes.rows[0].total_sales as string);
@@ -132,7 +137,7 @@ router.get('/sales', async (req: Request, res: Response) => {
       `SELECT p.method, COALESCE(SUM(s.total_amount), 0) AS amount
        FROM sales s
        JOIN payments p ON p.sale_id = s.id
-       ${where}
+      ${where || "WHERE s.status = 'completed'"}
        GROUP BY p.method`,
       params
     );
@@ -164,7 +169,10 @@ router.get('/top-products', async (req: Request, res: Response) => {
 
   const conditions: string[] = [];
   const params: unknown[] = [];
-  let paramIdx = 1;
+  let paramIdx = 2;
+  params.push(req.user!.shopId);
+
+  conditions.push("s.status = 'completed'");
 
   if (date_from) {
     conditions.push(`s.created_at >= $${paramIdx++}`);
@@ -175,7 +183,8 @@ router.get('/top-products', async (req: Request, res: Response) => {
     params.push(date_to);
   }
 
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  conditions.unshift('s.shop_id = $1');
+  const where = `WHERE ${conditions.join(' AND ')}`;
   params.push(parsedLimit);
 
   try {
@@ -189,7 +198,7 @@ router.get('/top-products', async (req: Request, res: Response) => {
        ${where}
        GROUP BY si.product_id, si.product_name
        ORDER BY quantity_sold DESC, revenue DESC
-       LIMIT $${paramIdx}`,
+       LIMIT $${params.length}`,
       params
     );
 
@@ -218,10 +227,10 @@ router.get('/low-stock', async (req: Request, res: Response) => {
            WHEN i.quantity <= 0 THEN 'Out of Stock'
            ELSE 'Low Stock'
          END AS status
-       FROM products p
-       JOIN inventory i ON i.product_id = p.id
-       WHERE p.is_active = TRUE AND i.quantity <= p.low_stock_threshold
-       ORDER BY i.quantity ASC, p.name ASC`
+      FROM products p
+      LEFT JOIN inventory i ON i.product_id = p.id
+      WHERE p.is_active = TRUE AND p.shop_id = $1 AND COALESCE(i.quantity, 0) <= p.low_stock_threshold
+      ORDER BY COALESCE(i.quantity, 0) ASC, p.name ASC`, [req.user!.shopId]
     );
     res.json(lowStockRes.rows);
   } catch (err) {

@@ -8,6 +8,13 @@ const router = Router();
 // All inventory routes require authentication
 router.use(authenticate);
 
+function strictInteger(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isSafeInteger(value) ? value : null;
+  if (typeof value !== 'string' || !/^-?\d+$/.test(value.trim())) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 // ─── GET /api/inventory ───────────────────────────────────────────────────────
 // Accessible by: owner, manager, cashier
 router.get('/', async (req: Request, res: Response) => {
@@ -28,10 +35,10 @@ router.get('/', async (req: Request, res: Response) => {
          END AS status,
          i.updated_at
        FROM products p
-       LEFT JOIN categories c      ON c.id = p.category_id
+       LEFT JOIN categories c      ON c.id = p.category_id AND c.shop_id = p.shop_id
        LEFT JOIN inventory  i      ON i.product_id = p.id
-       WHERE p.is_active = TRUE
-       ORDER BY p.name ASC`
+       WHERE p.is_active = TRUE AND p.shop_id = $1
+       ORDER BY p.name ASC`, [req.user!.shopId]
     );
     res.json(result.rows);
   } catch (err) {
@@ -65,10 +72,10 @@ router.get('/:productId', async (req: Request, res: Response): Promise<void> => 
          END AS status,
          i.updated_at
        FROM products p
-       LEFT JOIN categories c ON c.id = p.category_id
+       LEFT JOIN categories c ON c.id = p.category_id AND c.shop_id = p.shop_id
        LEFT JOIN inventory  i ON i.product_id = p.id
-       WHERE p.id = $1`,
-      [productId]
+       WHERE p.id = $1 AND p.shop_id = $2`,
+      [productId, req.user!.shopId]
     );
 
     if (result.rows.length === 0) {
@@ -98,16 +105,20 @@ router.post(
     const { quantity_change, reason } = req.body;
 
     // Validate inputs
-    const change = parseInt(quantity_change, 10);
-    if (isNaN(change) || change === 0) {
+    const change = strictInteger(quantity_change);
+    if (change === null || change === 0) {
       res.status(400).json({ message: 'quantity_change must be a non-zero integer' });
       return;
     }
 
-    if (!reason || typeof reason !== 'string' || reason.trim() === '') {
-      res.status(400).json({ message: 'Reason is required for inventory adjustments' });
+    if (reason !== undefined && reason !== null && typeof reason !== 'string') {
+      res.status(400).json({ message: 'reason must be a string when provided' });
       return;
     }
+
+    const adjustmentReason = typeof reason === 'string' && reason.trim()
+      ? reason.trim()
+      : change > 0 ? 'Manual restock' : 'Manual stock adjustment';
 
     const userId = req.user!.userId;
 
@@ -115,8 +126,8 @@ router.post(
       const result = await withTransaction(async (client: PoolClient) => {
         // 1. Verify product exists
         const productCheck = await client.query(
-          'SELECT id FROM products WHERE id = $1',
-          [productId]
+          'SELECT id FROM products WHERE id = $1 AND shop_id = $2',
+          [productId, req.user!.shopId]
         );
         if (productCheck.rows.length === 0) {
           throw Object.assign(new Error('Product not found'), { statusCode: 404 });
@@ -160,7 +171,7 @@ router.post(
              (product_id, adjusted_by, quantity_change, quantity_before, quantity_after, reason, reference_type)
            VALUES ($1, $2, $3, $4, $5, $6, 'manual')
            RETURNING *`,
-          [productId, userId, change, currentQty, newQty, reason.trim()]
+          [productId, userId, change, currentQty, newQty, adjustmentReason]
         );
 
         return {
@@ -168,7 +179,7 @@ router.post(
           quantity_before:   currentQty,
           quantity_after:    newQty,
           quantity_change:   change,
-          reason:            reason.trim(),
+          reason:            adjustmentReason,
           movement:          movResult.rows[0],
         };
       });
@@ -199,7 +210,7 @@ router.get(
 
     try {
       // Verify product exists
-      const productCheck = await query('SELECT id FROM products WHERE id = $1', [productId]);
+      const productCheck = await query('SELECT id FROM products WHERE id = $1 AND shop_id = $2', [productId, req.user!.shopId]);
       if (productCheck.rows.length === 0) {
         res.status(404).json({ message: 'Product not found' });
         return;
@@ -220,9 +231,9 @@ router.get(
            u.full_name     AS adjusted_by_name
          FROM inventory_adjustments ia
          JOIN users u ON u.id = ia.adjusted_by
-         WHERE ia.product_id = $1
+         WHERE ia.product_id = $1 AND u.shop_id = $2
          ORDER BY ia.created_at DESC`,
-        [productId]
+        [productId, req.user!.shopId]
       );
 
       res.json(result.rows);

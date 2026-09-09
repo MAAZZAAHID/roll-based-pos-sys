@@ -3,6 +3,8 @@
  * Covers all 20 requirements listed in the spec.
  */
 
+import { requiredTestCredential, testOwnerUsername } from './test-config';
+
 const BASE = `http://localhost:${process.env.PORT || 3001}/api`;
 
 async function req(method: string, path: string, body?: object, token?: string) {
@@ -23,10 +25,13 @@ function assert(condition: boolean, label: string) {
 }
 
 async function main() {
+  const ownerPassword = requiredTestCredential('TEST_OWNER_PASSWORD');
+  const testPassword = requiredTestCredential('TEST_PASSWORD');
+  const resetPassword = requiredTestCredential('TEST_RESET_PASSWORD');
   console.log('\n👥  User Management smoke-tests\n');
 
   // ── Owner login ──────────────────────────────────────────────────────────────
-  const ownerLogin = await req('POST', '/auth/login', { username: 'owner', password: 'Admin@1234' });
+  const ownerLogin = await req('POST', '/auth/login', { username: testOwnerUsername, password: ownerPassword });
   const ownerToken = ownerLogin.body.token;
   const ownerId: number = ownerLogin.body.user.id;
   assert(ownerLogin.status === 200 && !!ownerToken, 'Owner logged in');
@@ -45,7 +50,7 @@ async function main() {
   const cashierUsername = `cashier_${rand}`;
   const createCashier = await req('POST', '/users', {
     username: cashierUsername,
-    password: 'password123',
+    password: testPassword,
     role: 'cashier',
     full_name: 'Test Cashier'
   }, ownerToken);
@@ -57,7 +62,7 @@ async function main() {
   const managerUsername = `manager_${rand}`;
   const createManager = await req('POST', '/users', {
     username: managerUsername,
-    password: 'password123',
+    password: testPassword,
     role: 'manager',
     full_name: 'Test Manager'
   }, ownerToken);
@@ -68,7 +73,7 @@ async function main() {
   const owner2Username = `owner2_${rand}`;
   const createOwner2 = await req('POST', '/users', {
     username: owner2Username,
-    password: 'password123',
+    password: testPassword,
     role: 'owner',
     full_name: 'Second Owner'
   }, ownerToken);
@@ -79,7 +84,7 @@ async function main() {
   console.log('\n--- 3. Validation ---');
   const dupRes = await req('POST', '/users', {
     username: cashierUsername,
-    password: 'password123',
+    password: testPassword,
     role: 'cashier'
   }, ownerToken);
   assert(dupRes.status === 409, 'Duplicate username rejected with 409');
@@ -87,7 +92,7 @@ async function main() {
   // ── 6. Invalid role → 400 ────────────────────────────────────────────────────
   const badRoleRes = await req('POST', '/users', {
     username: `badrole_${rand}`,
-    password: 'password123',
+    password: testPassword,
     role: 'superadmin'
   }, ownerToken);
   assert(badRoleRes.status === 400, 'Invalid role rejected with 400');
@@ -138,7 +143,7 @@ async function main() {
 
   // ── 14. Deactivated user cannot authenticate ──────────────────────────────────
   // Login with original username (it was updated, but we'll use what the DB has)
-  const deactivatedLogin = await req('POST', '/auth/login', { username: updatedUsername, password: 'password123' });
+  const deactivatedLogin = await req('POST', '/auth/login', { username: updatedUsername, password: testPassword });
   assert(deactivatedLogin.status === 403, 'Deactivated user cannot authenticate');
 
   // ── 13. Owner can reactivate a user ──────────────────────────────────────────
@@ -150,28 +155,28 @@ async function main() {
   assert(reactivateRes.status === 200, 'Owner can reactivate a user');
 
   // Verify reactivated user can now log in
-  const reactivatedLogin = await req('POST', '/auth/login', { username: updatedUsername, password: 'password123' });
+  const reactivatedLogin = await req('POST', '/auth/login', { username: updatedUsername, password: testPassword });
   assert(reactivatedLogin.status === 200, 'Reactivated user can authenticate');
 
   // ── 13b. Owner can reset password ────────────────────────────────────────────
   console.log('\n--- 7. Password reset ---');
   const pwResetRes = await req('PUT', `/users/${managerId}/password`, {
-    password: 'newpassword456'
+    password: resetPassword
   }, ownerToken);
   assert(pwResetRes.status === 200, 'Owner can reset user password');
 
-  const pwLoginRes = await req('POST', '/auth/login', { username: managerUsername, password: 'newpassword456' });
+  const pwLoginRes = await req('POST', '/auth/login', { username: managerUsername, password: resetPassword });
   assert(pwLoginRes.status === 200, 'User can login with new password after reset');
 
   // ── 15. Cashier gets 403 ─────────────────────────────────────────────────────
   console.log('\n--- 8. Role enforcement ---');
-  const cashierLoginForRole = await req('POST', '/auth/login', { username: updatedUsername, password: 'password123' });
+  const cashierLoginForRole = await req('POST', '/auth/login', { username: updatedUsername, password: testPassword });
   const cashierToken = cashierLoginForRole.body.token;
   const cashierReq = await req('GET', '/users', undefined, cashierToken);
   assert(cashierReq.status === 403, 'Cashier receives 403 on /users');
 
   // ── 16. Manager gets 403 ─────────────────────────────────────────────────────
-  const mgrLoginForRole = await req('POST', '/auth/login', { username: managerUsername, password: 'newpassword456' });
+  const mgrLoginForRole = await req('POST', '/auth/login', { username: managerUsername, password: resetPassword });
   const managerToken = mgrLoginForRole.body.token;
   const mgrReq = await req('GET', '/users', undefined, managerToken);
   assert(mgrReq.status === 403, 'Manager receives 403 on /users');

@@ -1,11 +1,12 @@
-# Retail POS — Deployment Guide
+# Retail POS - Deployment Guide
 
-This document outlines the deployment configuration for the Retail POS system.
+The Retail POS frontend and API deploy together as one Vercel Services project
+with one shared domain.
 
 ## Architecture Overview
 
-- **Frontend:** React + TypeScript + Vite (Deployed to Vercel)
-- **Backend:** Node.js + Express + TypeScript (Deployed to Render)
+- **Frontend service:** `frontend/`, React + TypeScript + Vite (built to `dist`)
+- **Backend service:** `backend/`, Express + TypeScript (served by `api/index.ts`)
 - **Database:** Neon PostgreSQL
 
 ---
@@ -18,50 +19,60 @@ The database is hosted on Neon PostgreSQL. The schema and initial data are alrea
 
 ---
 
-## 2. Backend (Render)
+## 2. Vercel project
 
-The backend is a Node.js REST API built with Express.
+Create or configure one Vercel project for the repository root. Set its Framework
+Preset to **Services**. The root `vercel.json` defines both services and routes
+them on the same deployment:
 
-### Build & Start Commands
+- `/api/(.*)` → the `backend` service
+- `/(.*)` → the `frontend` service
 
-- **Build Command:** `npm run build` (This runs `tsc` to compile TypeScript to `dist/`)
-- **Start Command:** `npm start` (This runs `node dist/index.js`)
-- **Root Directory:** `backend`
-
-### Environment Variables
-
-Configure the following environment variables in the Render dashboard:
-
-- `PORT`: (Render will set this automatically, e.g., `10000`)
-- `DATABASE_URL`: Your Neon PostgreSQL connection string (e.g., `postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require`)
-- `JWT_SECRET`: A long, cryptographically secure random string used to sign session tokens.
-- `CORS_ORIGIN`: The public URL of the deployed Vercel frontend (e.g., `https://your-frontend.vercel.app`). Do not include a trailing slash.
-
-### Health Check
-
-To verify the backend is running and connected to the database, Render or external monitoring tools can access:
-
-`GET /api/health`
-
-This endpoint returns a `200 OK` status with `{"status": "ok"}` when healthy and does not expose any sensitive information.
-
----
-
-## 3. Frontend (Vercel)
-
-The frontend is a React application built with Vite.
+The frontend therefore uses the same production origin for API requests, and
+direct browser navigation to routes such as `/dashboard` and `/pos` remains on
+the frontend service.
 
 ### Build Settings
 
-- **Framework Preset:** Vite
-- **Build Command:** `npm run build` (This runs `tsc -b && vite build`)
-- **Output Directory:** `dist`
-- **Root Directory:** `frontend`
+- **Root Directory:** repository root
+- **Framework Preset:** Services
+- **Frontend service:** root `frontend/`, framework `vite`, build command `npm run build`, output `dist`
+- **Backend service:** root `backend/`, framework `express`, entrypoint `api/index.ts`
+- **Install Command:** `npm install`
 
 ### Environment Variables
 
-Configure the following environment variable in the Vercel dashboard:
+Configure these environment variables in the Vercel dashboard:
 
-- `VITE_API_URL`: The public URL of the deployed Render backend (e.g., `https://your-backend.onrender.com/api`). Do not include a trailing slash.
+- `DATABASE_URL`: Your Neon PostgreSQL connection string.
+- `JWT_SECRET`: A long, cryptographically secure random string used to sign session tokens.
+- `JWT_EXPIRES_IN`: Optional JWT lifetime; defaults to `8h`.
+- `CORS_ORIGIN`: Backend origin allowlist for local/separate frontend access.
 
-**Warning:** Never place `DATABASE_URL` or `JWT_SECRET` in the frontend environment variables.
+Configure these variables on the single Vercel project. `DATABASE_URL`,
+`JWT_SECRET`, and `JWT_EXPIRES_IN` are server-side values used by the backend;
+they are not frontend `VITE_*` variables. `CORS_ORIGIN` is optional for direct
+local clients and is not required for same-origin browser requests. Never place
+database credentials or JWT secrets in frontend environment variables. Keep
+`.env` files local/uncommitted.
+
+### Local development
+
+Run the backend and frontend separately:
+
+```bash
+npm run dev --workspace backend
+npm run dev --workspace frontend -- --host 127.0.0.1
+```
+
+The Vite development server proxies `/api/*` to `http://localhost:3001`.
+
+## Multi-shop migration and tenant security
+
+Run `database/migrate.sql` once against the existing database before starting the multi-shop build. Migration 009 creates the shared `shops` table, adopts existing records into Shop 1, and adds indexed `shop_id` foreign keys without dropping data. The backend derives tenant context from the authenticated user and scopes all tenant-owned API queries; clients cannot select a shop by submitting `shop_id`.
+
+PostgreSQL RLS is intentionally staged rather than enabled blindly: the current pooled server connection does not yet establish a per-request database role/session variable safely. Backend tenant enforcement is the active control. A future RLS migration should use a transaction-local, server-set tenant variable on every checked-out connection and include policies for every tenant-owned table before enabling enforcement.
+
+### Health Check
+
+`GET /api/health` returns `200 OK` with `{"status":"ok"}` when PostgreSQL is reachable.

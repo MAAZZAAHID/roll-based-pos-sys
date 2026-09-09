@@ -9,6 +9,7 @@ import productsRouter from './routes/products';
 import inventoryRoutes from './routes/inventory';
 import salesRoutes from './routes/sales';
 import reportsRoutes from './routes/reports';
+import shopRouter from './routes/shop';
 
 dotenv.config();
 
@@ -16,16 +17,16 @@ const app = express();
 const port = process.env.PORT || 3001;
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
-// CORS_ORIGIN may be a single origin or comma-separated list for multiple origins
-const rawOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
-const allowedOrigins = rawOrigin.split(',').map(o => o.trim()).filter(Boolean);
-const corsOrigin = allowedOrigins.length === 1 ? allowedOrigins[0] : allowedOrigins;
-
-app.use(cors({
-  origin: corsOrigin,
-  credentials: true,
-}));
-app.use(express.json());
+// Same-origin deployments do not need CORS. Set CORS_ORIGIN for direct local clients.
+const rawOrigin = process.env.CORS_ORIGIN;
+if (rawOrigin) {
+  const allowedOrigins = rawOrigin.split(',').map(o => o.trim()).filter(Boolean);
+  const corsOrigin = allowedOrigins.length === 1 ? allowedOrigins[0] : allowedOrigins;
+  app.use(cors({ origin: corsOrigin, credentials: true }));
+}
+// Branding uploads use bounded base64 image data URLs; keep the request limit
+// finite while allowing the validated logo payload through.
+app.use(express.json({ limit: '1mb' }));
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRouter);
@@ -35,6 +36,7 @@ app.use('/api/products', productsRouter);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/sales', salesRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/shop', shopRouter);
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 // No auth required. Returns minimal info only — no DB names, credentials, or internals.

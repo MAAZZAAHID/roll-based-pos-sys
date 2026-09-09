@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
+import type { ShopSettings } from '../types/shop';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface SaleRow {
@@ -60,21 +59,33 @@ function fmtDate(iso: string): string {
 }
 
 // ─── Receipt Print ────────────────────────────────────────────────────────────
-function printSaleDetail(sale: SaleDetail) {
+function escapeHtml(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] || char);
+}
+
+const defaultLogoSvg = '<svg viewBox="0 0 40 40" width="28" height="28" aria-label="Retail POS"><circle cx="20" cy="20" r="18" fill="#4f46e5"/><path d="M11 19.5 20 11l9 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 11 28.5v-9Z" fill="white"/><path d="M16 30v-6h8v6" fill="#4f46e5"/></svg>';
+
+function printSaleDetail(sale: SaleDetail, shop: ShopSettings | null) {
   const w = window.open('', '_blank', 'width=400,height=600');
   if (!w) return;
   const total = fmt(sale.total_amount);
   const itemRows = sale.items.map(it =>
     `<tr>
-      <td>${it.product_name}</td>
-      <td style="text-align:center">${it.quantity}</td>
-      <td style="text-align:right">Rs. ${fmt(it.unit_price)}</td>
-      <td style="text-align:right">Rs. ${fmt(it.line_total)}</td>
+      <td>${escapeHtml(it.product_name)}</td>
+      <td style="text-align:center">${escapeHtml(it.quantity)}</td>
+      <td style="text-align:right">Rs. ${escapeHtml(fmt(it.unit_price))}</td>
+      <td style="text-align:right">Rs. ${escapeHtml(fmt(it.line_total))}</td>
     </tr>`
   ).join('');
+  const shopName = shop?.show_name !== false ? (shop?.name || 'Retail POS') : 'Retail POS';
+  const logoHtml = shop?.show_logo !== false
+    ? (shop?.logo_url
+      ? `<img src="${escapeHtml(shop.logo_url)}" alt="Shop logo" style="display:block;margin:0 auto 4px;max-height:48px;max-width:128px;object-fit:contain" onerror="this.style.display='none';this.nextElementSibling.style.display='block'" /><span style="display:none">${defaultLogoSvg}</span>`
+      : defaultLogoSvg)
+    : '';
 
   w.document.write(`<!DOCTYPE html><html><head>
-    <title>Receipt ${sale.invoice_number}</title>
+    <title>Receipt ${escapeHtml(sale.invoice_number)}</title>
     <style>
       body { font-family: monospace; font-size: 12px; padding: 8px; max-width: 300px; }
       h2 { text-align:center; margin-bottom:4px; }
@@ -86,11 +97,11 @@ function printSaleDetail(sale: SaleDetail) {
       .total { font-weight:bold; }
     </style>
   </head><body>
-    <h2>Retail POS</h2>
+    <div style="text-align:center">${logoHtml}<h2>${escapeHtml(shopName)}</h2>${shop?.address ? `<p>${escapeHtml(shop.address)}</p>` : ''}${shop?.phone ? `<p>${escapeHtml(shop.phone)}</p>` : ''}</div>
     <div class="divider"></div>
-    <p>Invoice: ${sale.invoice_number}</p>
-    <p>Date: ${fmtDate(sale.created_at)}</p>
-    <p>Cashier: ${sale.cashier_name}</p>
+    <p>Invoice: ${escapeHtml(sale.invoice_number)}</p>
+    <p>Date: ${escapeHtml(fmtDate(sale.created_at))}</p>
+    <p>Cashier: ${escapeHtml(sale.cashier_name)}</p>
     <div class="divider"></div>
     <table>
       <thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
@@ -98,11 +109,11 @@ function printSaleDetail(sale: SaleDetail) {
     </table>
     <div class="divider"></div>
     <p class="total">TOTAL: Rs. ${total}</p>
-    <p>Payment: ${sale.payment_method}</p>
-    <p>Paid: Rs. ${fmt(sale.amount_tendered)}</p>
-    ${sale.payment_method === 'cash' ? `<p>Change: Rs. ${fmt(sale.change_given)}</p>` : ''}
+    <p>Payment: ${escapeHtml(sale.payment_method)}</p>
+    <p>Paid: Rs. ${escapeHtml(fmt(sale.amount_tendered))}</p>
+    ${sale.payment_method === 'cash' ? `<p>Change: Rs. ${escapeHtml(fmt(sale.change_given))}</p>` : ''}
     <div class="divider"></div>
-    <p style="text-align:center">Thank you!</p>
+    <p style="text-align:center">${escapeHtml(shop?.receipt_footer?.trim() || 'Thank you!')}</p>
   </body></html>`);
   w.document.close();
   w.focus();
@@ -110,10 +121,30 @@ function printSaleDetail(sale: SaleDetail) {
 }
 
 // ─── Sale Detail Modal ────────────────────────────────────────────────────────
-function SaleDetailModal({ saleId, onClose }: { saleId: number; onClose: () => void }) {
+function SaleDetailModal({ saleId, onClose, shop }: { saleId: number; onClose: () => void; shop: ShopSettings | null }) {
   const [sale, setSale]     = useState<SaleDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]   = useState('');
+  const [refundOpen, setRefundOpen] = useState(false);
+  const [refundReason, setRefundReason] = useState('');
+  const [refundMethod, setRefundMethod] = useState('cash');
+  const [refundQuantities, setRefundQuantities] = useState<Record<number, number>>({});
+  const [refundSaving, setRefundSaving] = useState(false);
+
+  async function submitRefund() {
+    if (!sale || !refundReason.trim()) { setError('Refund reason is required.'); return; }
+    const items = sale.items.filter(item => (refundQuantities[item.id] || 0) > 0).map(item => ({ sale_item_id: item.id, quantity: refundQuantities[item.id] }));
+    if (items.length === 0) { setError('Select at least one item quantity to refund.'); return; }
+    setRefundSaving(true);
+    try {
+      await api.post(`/sales/${sale.id}/refund`, { items, reason: refundReason.trim(), method: refundMethod });
+      setRefundOpen(false);
+      setRefundReason('');
+      setRefundQuantities({});
+      onClose();
+    } catch (err: any) { setError(err.message || 'Refund failed'); }
+    finally { setRefundSaving(false); }
+  }
 
   useEffect(() => {
     api.get<SaleDetail>(`/sales/${saleId}`)
@@ -227,12 +258,29 @@ function SaleDetailModal({ saleId, onClose }: { saleId: number; onClose: () => v
               </button>
               <button
                 id="detail-print-btn"
-                onClick={() => printSaleDetail(sale)}
+                onClick={() => printSaleDetail(sale, shop)}
                 className="flex-1 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm transition"
               >
-                🖨 Print Receipt
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="inline-block mr-2 align-[-4px]" aria-hidden="true"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><path d="M6 14h12v7H6zM18 12h.01" /></svg>Print Receipt
               </button>
+              {sale.status === 'completed' && (
+                <button onClick={() => setRefundOpen(true)} className="flex-1 py-2.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold text-sm transition">Refund</button>
+              )}
             </div>
+            {refundOpen && (
+              <div className="mt-4 border-t border-gray-700 pt-4 space-y-3">
+                <p className="text-sm font-semibold">Refund items</p>
+                {sale.items.map(item => (
+                  <label key={item.id} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="truncate">{item.product_name} <span className="text-gray-500">(sold {item.quantity})</span></span>
+                    <input type="number" min="0" max={item.quantity} value={refundQuantities[item.id] || ''} onChange={e => setRefundQuantities({ ...refundQuantities, [item.id]: Math.min(item.quantity, Math.max(0, Number(e.target.value))) })} className="w-20 px-2 py-1" placeholder="Qty" />
+                  </label>
+                ))}
+                <input value={refundReason} onChange={e => setRefundReason(e.target.value)} placeholder="Refund reason *" className="w-full px-3 py-2" />
+                <select value={refundMethod} onChange={e => setRefundMethod(e.target.value)} className="w-full px-3 py-2"><option value="cash">Cash</option><option value="card">Card</option><option value="other">Other</option></select>
+                <div className="flex justify-end gap-2"><button onClick={() => setRefundOpen(false)} className="px-3 py-2 bg-gray-800 rounded-lg text-sm">Cancel</button><button onClick={submitRefund} disabled={refundSaving} className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-sm">{refundSaving ? 'Processing...' : 'Confirm refund'}</button></div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -242,8 +290,6 @@ function SaleDetailModal({ saleId, onClose }: { saleId: number; onClose: () => v
 
 // ─── Sales Page ───────────────────────────────────────────────────────────────
 export default function SalesPage() {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
 
   // Data
   const [sales, setSales]           = useState<SaleRow[]>([]);
@@ -260,6 +306,7 @@ export default function SalesPage() {
 
   // Detail modal
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(null);
+  const [shop, setShop] = useState<ShopSettings | null>(null);
 
   // ── Fetch sales ────────────────────────────────────────────────────────────
   const fetchSales = useCallback(async (currentPage: number) => {
@@ -283,6 +330,7 @@ export default function SalesPage() {
   }, [invoiceFilter, dateFrom, dateTo, methodFilter]);
 
   useEffect(() => {
+    api.get<ShopSettings>('/shop').then(setShop).catch(() => undefined);
     fetchSales(page);
   }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -308,29 +356,18 @@ export default function SalesPage() {
   // ──────────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
-      {/* Header */}
-      <header className="bg-gray-900 border-b border-gray-700 px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/pos')}
-            className="text-gray-400 hover:text-white transition text-sm"
-          >← POS</button>
-          <h1 className="text-lg font-bold text-white">Sales History</h1>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400 capitalize">{user?.fullName}
-            <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-indigo-600/30 text-indigo-300">{user?.role}</span>
-          </span>
-          <button onClick={() => { logout(); navigate('/login'); }} className="text-sm text-gray-400 hover:text-white transition">
-            Sign out
-          </button>
-        </div>
-      </header>
+      <main className="app-page flex-1 space-y-5">
 
-      <div className="flex-1 p-6 space-y-4">
+        <div className="page-header">
+          <div>
+            <p className="page-kicker">Transactions</p>
+            <h1 className="page-title">Sales</h1>
+            <p className="page-subtitle">Search, review, and manage completed transactions.</p>
+          </div>
+        </div>
 
         {/* Filter Bar */}
-        <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 flex flex-wrap gap-3 items-end">
+        <div className="form-panel flex flex-wrap items-end gap-3">
           <div>
             <label className="block text-xs text-gray-400 mb-1">Invoice</label>
             <input
@@ -404,8 +441,8 @@ export default function SalesPage() {
         </div>
 
         {/* Sales Table */}
-        <div className="bg-gray-900 border border-gray-700 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="panel overflow-x-auto">
+          <table className="data-table w-full text-sm">
             <thead className="text-xs text-gray-400 uppercase bg-gray-800">
               <tr>
                 <th className="px-4 py-3 text-left">Invoice</th>
@@ -421,7 +458,7 @@ export default function SalesPage() {
               {loading ? (
                 <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">Loading…</td></tr>
               ) : sales.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">No sales found</td></tr>
+                <tr><td colSpan={7} className="empty-state"><div className="empty-state-title">No sales found</div><div className="empty-state-copy">Try adjusting your search or date filters.</div></td></tr>
               ) : (
                 sales.map(sale => (
                   <tr key={sale.id} className="hover:bg-gray-800/40 transition">
@@ -472,12 +509,13 @@ export default function SalesPage() {
             >Next →</button>
           </div>
         )}
-      </div>
+      </main>
 
       {/* Sale Detail Modal */}
       {selectedSaleId !== null && (
         <SaleDetailModal
           saleId={selectedSaleId}
+          shop={shop}
           onClose={() => setSelectedSaleId(null)}
         />
       )}

@@ -2,6 +2,8 @@
  * Smoke-tests for Inventory Management (Step 7).
  */
 
+import { requiredTestCredential, testOwnerUsername } from './test-config';
+
 const BASE = `http://localhost:${process.env.PORT || 3001}/api`;
 
 async function req(method: string, path: string, body?: object, token?: string) {
@@ -21,10 +23,12 @@ function assert(condition: boolean, label: string) {
 }
 
 async function main() {
+  const ownerPassword = requiredTestCredential('TEST_OWNER_PASSWORD');
+  const testPassword = requiredTestCredential('TEST_PASSWORD');
   console.log('\n📦  Inventory Management smoke-tests\n');
 
   // ── Setup: login as owner ─────────────────────────────────────────────────
-  const ownerLogin = await req('POST', '/auth/login', { username: 'owner', password: 'Admin@1234' });
+  const ownerLogin = await req('POST', '/auth/login', { username: testOwnerUsername, password: ownerPassword });
   assert(ownerLogin.status === 200, 'Owner login');
   const ownerToken: string = ownerLogin.body.token;
 
@@ -35,18 +39,18 @@ async function main() {
 
   const mgrCreate = await req('POST', '/users', {
     username: mgrUser, email: `${mgrUser}@test.com`,
-    password: 'password123', full_name: 'Inv Manager', role: 'manager'
+    password: testPassword, full_name: 'Inv Manager', role: 'manager'
   }, ownerToken);
   assert(mgrCreate.status === 201, 'Test manager created');
 
   const cashCreate = await req('POST', '/users', {
     username: cashUser, email: `${cashUser}@test.com`,
-    password: 'password123', full_name: 'Inv Cashier', role: 'cashier'
+    password: testPassword, full_name: 'Inv Cashier', role: 'cashier'
   }, ownerToken);
   assert(cashCreate.status === 201, 'Test cashier created');
 
-  const mgrLogin  = await req('POST', '/auth/login', { username: mgrUser,  password: 'password123' });
-  const cashLogin = await req('POST', '/auth/login', { username: cashUser, password: 'password123' });
+  const mgrLogin  = await req('POST', '/auth/login', { username: mgrUser,  password: testPassword });
+  const cashLogin = await req('POST', '/auth/login', { username: cashUser, password: testPassword });
   const managerToken: string  = mgrLogin.body.token;
   const cashierToken: string  = cashLogin.body.token;
 
@@ -134,13 +138,14 @@ async function main() {
   const noReason = await req('POST', `/inventory/${productId}/adjust`, {
     quantity_change: 5
   }, ownerToken);
-  assert(noReason.status === 400, 'Missing reason is rejected (400)');
+  assert(noReason.status === 200, 'Adjustment succeeds without a reason');
+  assert(noReason.body.reason === 'Manual restock', 'Missing reason uses a safe default');
 
-  const emptyReason = await req('POST', `/inventory/${productId}/adjust`, {
-    quantity_change: 5,
-    reason: '   '
+  const restoreAfterOptionalReason = await req('POST', `/inventory/${productId}/adjust`, {
+    quantity_change: -5,
+    reason: 'Restore test quantity'
   }, ownerToken);
-  assert(emptyReason.status === 400, 'Empty reason is rejected (400)');
+  assert(restoreAfterOptionalReason.status === 200, 'Stock can be restored after an optional-reason adjustment');
 
   // ── Test 10-12: Movement record is created correctly ─────────────────────
   console.log('\n--- 4. Movement Records ---');
